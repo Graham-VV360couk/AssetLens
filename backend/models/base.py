@@ -12,11 +12,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Database connection URL
-DATABASE_URL = (
+# Database connection URL — use DATABASE_URL directly if set, else build from parts
+DATABASE_URL = os.getenv('DATABASE_URL') or (
     f"postgresql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}"
     f"@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
 )
+# SQLAlchemy requires postgresql:// not postgres://
+if DATABASE_URL and DATABASE_URL.startswith('postgres://'):
+    DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
 
 # SQLAlchemy engine with connection pooling for nationwide scale
 engine = create_engine(

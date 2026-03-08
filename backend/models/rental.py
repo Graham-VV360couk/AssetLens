@@ -2,7 +2,7 @@
 Rental data model
 """
 
-from sqlalchemy import Column, Integer, String, Float, Date, ForeignKey, Index
+from sqlalchemy import Column, Integer, String, Float, Date, Boolean, ForeignKey, Index
 from sqlalchemy.orm import relationship
 from .base import Base, TimestampMixin
 
@@ -48,7 +48,3 @@ class Rental(Base, TimestampMixin):
 
     def __repr__(self):
         return f"<Rental(postcode='{self.postcode}', rent=£{self.rent_monthly}/mo)>"
-
-
-# Import Boolean
-from sqlalchemy import Boolean
