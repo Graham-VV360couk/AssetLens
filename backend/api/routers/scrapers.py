@@ -399,7 +399,10 @@ def _extract_listings(soup: BeautifulSoup, base_url: str) -> list:
 
 def _find_next_page(soup: BeautifulSoup, current_url: str, page_num: int) -> Optional[str]:
     """Try to find a next page URL."""
-    next_el = soup.select_one('a[rel="next"], .pagination .next a, a.next, [aria-label="Next"]')
+    next_el = soup.select_one(
+        'a[rel="next"], .pagination .next a, a.next, [aria-label="Next"], '
+        'a.ur-load-more-link, a[class*="load-more-link"], a[class*="load-more"]:not(button)'
+    )
     if next_el and next_el.get('href'):
         return urljoin(current_url, next_el['href'])
     # Try appending ?page=N or /page/N
@@ -645,30 +648,23 @@ def _run_scraper(source_id: int):
             all_listings.extend(first_page)
             logger.info("Source %s page 1: %d listings", source.name, len(first_page))
 
-            # AJAX Load More sites (e.g. WordPress ALM plugin)
-            if 'agentspropertyauction.com' in domain:
-                ajax_listings = _fetch_wp_alm_pages(
-                    first_soup, source.url, session, max(source.max_pages - 1, 1) * 13
-                )
-                all_listings.extend(ajax_listings)
-                logger.info("Source %s ALM total: %d listings", source.name, len(all_listings))
-            else:
-                # Standard page-by-page pagination
-                url = source.url
-                for page_num in range(2, source.max_pages + 1):
-                    next_url = _find_next_page(first_soup, url, page_num)
-                    if not next_url or next_url == url:
-                        break
-                    soup = _scrape_page(next_url, session)
-                    if not soup:
-                        break
-                    page_listings = _extract_listings(soup, source.url)
-                    if not page_listings:
-                        break
-                    all_listings.extend(page_listings)
-                    logger.info("Source %s page %d: %d listings", source.name, page_num, len(page_listings))
-                    first_soup = soup
-                    url = next_url
+            # Standard page-by-page pagination (follows rel=next, numbered pages,
+            # load-more links, ?page=N — all handled by _find_next_page)
+            url = source.url
+            current_soup = first_soup
+            for page_num in range(2, source.max_pages + 1):
+                next_url = _find_next_page(current_soup, url, page_num)
+                if not next_url or next_url == url:
+                    break
+                current_soup = _scrape_page(next_url, session)
+                if not current_soup:
+                    break
+                page_listings = _extract_listings(current_soup, source.url)
+                if not page_listings:
+                    break
+                all_listings.extend(page_listings)
+                logger.info("Source %s page %d: %d listings", source.name, page_num, len(page_listings))
+                url = next_url
 
         # Optional detail page enrichment
         if source.scrape_detail_pages:
