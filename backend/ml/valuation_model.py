@@ -23,7 +23,7 @@ try:
     from sklearn.metrics import mean_absolute_percentage_error
     from sklearn.preprocessing import LabelEncoder
     ML_AVAILABLE = True
-except ImportError:
+except (ImportError, OSError):
     ML_AVAILABLE = False
     logger.warning("ML libraries not available - using statistical fallback")
 

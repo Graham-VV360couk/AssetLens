@@ -26,7 +26,7 @@ WORKDIR /app
 
 # Install runtime system deps only (libpq5 for psycopg2, curl for healthcheck)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq5 curl \
+    libpq5 curl libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy installed Python packages from builder (system-wide, no --user)
