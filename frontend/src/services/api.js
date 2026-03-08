@@ -8,7 +8,7 @@ import axios from 'axios';
 // API Base URL Configuration
 // In production: API is proxied via nginx at /api
 // In development: Use localhost:8000
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const API_BASE_URL = process.env.REACT_APP_API_URL ?? 'http://localhost:8000';
 
 console.log('API Base URL:', API_BASE_URL);
 
@@ -187,6 +187,36 @@ export const dashboardApi = {
   // Get dashboard summary stats
   getStats: async () => {
     const response = await apiClient.get('/api/dashboard/stats');
+    return response.data;
+  },
+};
+
+/**
+ * Scrapers API
+ */
+export const scrapersApi = {
+  getAll: async () => {
+    const response = await apiClient.get('/api/scrapers');
+    return response.data;
+  },
+  add: async (payload) => {
+    const response = await apiClient.post('/api/scrapers', payload);
+    return response.data;
+  },
+  delete: async (id) => {
+    const response = await apiClient.delete(`/api/scrapers/${id}`);
+    return response.data;
+  },
+  toggle: async (id) => {
+    const response = await apiClient.patch(`/api/scrapers/${id}/toggle`);
+    return response.data;
+  },
+  run: async (id) => {
+    const response = await apiClient.post(`/api/scrapers/${id}/run`);
+    return response.data;
+  },
+  investigate: async (id) => {
+    const response = await apiClient.post(`/api/scrapers/${id}/investigate`);
     return response.data;
   },
 };

@@ -8,6 +8,7 @@ from .sales_history import SalesHistory
 from .rental import Rental
 from .hmo import HMORegister
 from .auction import Auction
+from .scraper_source import ScraperSource
 
 __all__ = [
     'Base',
@@ -18,4 +19,5 @@ __all__ = [
     'Rental',
     'HMORegister',
     'Auction',
+    'ScraperSource',
 ]

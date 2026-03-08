@@ -54,7 +54,7 @@ class Property(Base, TimestampMixin):
     rentals = relationship('Rental', back_populates='property', cascade='all, delete-orphan')
     hmo_records = relationship('HMORegister', back_populates='property', cascade='all, delete-orphan')
     auctions = relationship('Auction', back_populates='property', cascade='all, delete-orphan')
-    scores = relationship('PropertyScore', back_populates='property', cascade='all, delete-orphan', uselist=False)
+    score = relationship('PropertyScore', back_populates='property', cascade='all, delete-orphan', uselist=False)
 
     # Composite indexes for common queries
     __table_args__ = (
@@ -137,7 +137,7 @@ class PropertyScore(Base, TimestampMixin):
     model_version = Column(String(20))
 
     # Relationship
-    property = relationship('Property', back_populates='scores')
+    property = relationship('Property', back_populates='score')
 
     __table_args__ = (
         Index('ix_score_investment', 'investment_score'),

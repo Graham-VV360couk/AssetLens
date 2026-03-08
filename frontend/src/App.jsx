@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard';
 import Properties from './pages/Properties';
 import PropertyDetail from './pages/PropertyDetail';
 import Alerts from './pages/Alerts';
+import Scrapers from './pages/Scrapers';
 
 export default function App() {
   return (
@@ -23,6 +24,7 @@ export default function App() {
           <Route path="properties" element={<Properties />} />
           <Route path="properties/:id" element={<PropertyDetail />} />
           <Route path="alerts" element={<Alerts />} />
+          <Route path="scrapers" element={<Scrapers />} />
         </Route>
       </Routes>
     </BrowserRouter>
