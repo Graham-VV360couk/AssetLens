@@ -1,0 +1,12 @@
+# AssetLens Cron Schedule
+# Install with: crontab scripts/crontab.txt
+# All times UTC
+
+# Daily ETL + scoring at 2:00 AM
+0 2 * * * /bin/bash /app/scripts/run_etl.sh >> /app/logs/cron_etl.log 2>&1
+
+# Daily email alerts at 6:00 AM
+0 6 * * * /bin/bash /app/scripts/send_alerts.sh >> /app/logs/cron_alerts.log 2>&1
+
+# Health check every 15 minutes
+*/15 * * * * curl -sf http://localhost:8000/health > /dev/null || echo "$(date): API health check FAILED" >> /app/logs/health.log

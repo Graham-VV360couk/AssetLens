@@ -1,0 +1,168 @@
+version: '3.9'
+
+# ============================================================
+# AssetLens — Production Docker Compose
+# Uses root-level multi-stage Dockerfiles.
+# Requires a populated .env file — see .env.example.
+#
+# Build & start:
+#   docker compose -f docker-compose.prod.yml up -d --build
+# ============================================================
+
+services:
+  # ----------------------------------------------------------
+  # PostgreSQL Database — no external port exposure
+  # ----------------------------------------------------------
+  db:
+    image: postgres:15-alpine
+    container_name: assetlens_db_prod
+    restart: always
+    environment:
+      POSTGRES_DB: ${DB_NAME:-assetlens}
+      POSTGRES_USER: ${DB_USER:-assetlens}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=en_GB.UTF-8"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./database/seeds:/docker-entrypoint-initdb.d:ro
+    # Production-tuned Postgres settings (uplifted from shared_buffers=256 → 512MB)
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=512MB"
+      - "-c"
+      - "effective_cache_size=2GB"
+      - "-c"
+      - "maintenance_work_mem=128MB"
+      - "-c"
+      - "checkpoint_completion_target=0.9"
+      - "-c"
+      - "wal_buffers=16MB"
+      - "-c"
+      - "default_statistics_target=100"
+      - "-c"
+      - "random_page_cost=1.1"
+      - "-c"
+      - "effective_io_concurrency=200"
+      - "-c"
+      - "work_mem=10MB"
+      - "-c"
+      - "min_wal_size=1GB"
+      - "-c"
+      - "max_wal_size=4GB"
+      - "-c"
+      - "max_connections=100"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-assetlens}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - assetlens
+
+  # ----------------------------------------------------------
+  # Redis Cache — no external port exposure
+  # Persistence enabled (appendonly + scheduled saves) so
+  # cached valuation data survives container restarts.
+  # ----------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: assetlens_redis_prod
+    restart: always
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - assetlens
+
+  # ----------------------------------------------------------
+  # Backend API — no external port exposure (nginx proxies /api)
+  # Built from root-level Dockerfile (multi-stage, non-root user)
+  # ----------------------------------------------------------
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: assetlens_backend_prod
+    restart: always
+    env_file: .env
+    environment:
+      # Override/supplement .env with container-internal endpoints
+      DATABASE_URL: postgresql://${DB_USER:-assetlens}:${DB_PASSWORD}@db:5432/${DB_NAME:-assetlens}
+      REDIS_URL: redis://redis:6379/0
+      APP_ENV: production
+      DEBUG: "false"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # API keys — values sourced from .env
+      SEARCHLAND_API_KEY: ${SEARCHLAND_API_KEY:-}
+      PROPERTYDATA_API_KEY: ${PROPERTYDATA_API_KEY:-}
+      # Email alerts
+      SMTP_HOST: ${SMTP_HOST:-smtp.sendgrid.net}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-apikey}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-alerts@assetlens.com}
+      ALERT_EMAIL: ${ALERT_EMAIL:-}
+      # CORS
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      # Feature flags
+      FEATURE_EMAIL_ALERTS: ${FEATURE_EMAIL_ALERTS:-true}
+      FEATURE_ML_VALUATION: ${FEATURE_ML_VALUATION:-true}
+    volumes:
+      - logs:/app/logs
+      - models:/app/models
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - assetlens
+
+  # ----------------------------------------------------------
+  # Frontend — nginx serves React bundle and proxies /api
+  # Built from root-level Dockerfile.frontend (multi-stage)
+  # ----------------------------------------------------------
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        # Relative path means the React app routes /api via nginx,
+        # so the backend is never directly reachable from the browser.
+        REACT_APP_API_URL: /api
+    container_name: assetlens_frontend_prod
+    restart: always
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    depends_on:
+      - backend
+    networks:
+      - assetlens
+    # No volume mounts — static files are baked into the image
+
+volumes:
+  pgdata:
+    driver: local
+  redis_data:
+    driver: local
+  logs:
+    driver: local
+  models:
+    driver: local
+
+networks:
+  assetlens:
+    driver: bridge

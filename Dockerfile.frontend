@@ -1,0 +1,42 @@
+# ============================================================
+# AssetLens Frontend — Production Dockerfile
+# Stage 1: Build React app with Node
+# Stage 2: Serve compiled bundle with nginx
+# ============================================================
+
+# Stage 1: Build
+FROM node:18-alpine AS builder
+
+WORKDIR /app
+
+COPY frontend/package*.json ./
+RUN npm ci --silent
+
+COPY frontend/ .
+
+# Build production bundle
+ARG REACT_APP_API_URL=
+ENV REACT_APP_API_URL=$REACT_APP_API_URL
+RUN npm run build
+
+# Stage 2: Serve with nginx
+FROM nginx:1.25-alpine AS runtime
+
+LABEL maintainer="AssetLens" \
+      description="UK Property Investment Intelligence Dashboard" \
+      version="1.0.0"
+
+# Copy main nginx config and site-level config into conf.d/
+# nginx/nginx.conf uses `include /etc/nginx/conf.d/*.conf`
+COPY nginx/nginx.conf /etc/nginx/nginx.conf
+COPY nginx/frontend.conf /etc/nginx/conf.d/default.conf
+
+# Copy built React app
+COPY --from=builder /app/build /usr/share/nginx/html
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD wget -q --spider http://localhost:80/health || exit 1
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]
