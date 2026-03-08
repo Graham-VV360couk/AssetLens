@@ -146,7 +146,9 @@ class PropertyScoringService:
 
     def _calc_area_trend_score(self, area_stats: dict) -> float:
         """0-20 points. Based on 10-year price growth trend."""
-        growth_10yr = area_stats.get('growth_pct_10yr', 0)
+        if 'growth_pct_10yr' not in area_stats:
+            return 8.0  # neutral — no Land Registry data available
+        growth_10yr = area_stats.get('growth_pct_10yr')
         if growth_10yr is None:
             return 8.0  # neutral
         if growth_10yr >= 0.80:
