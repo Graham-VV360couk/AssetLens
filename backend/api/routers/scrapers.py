@@ -18,6 +18,7 @@ from backend.api.dependencies import get_db
 from backend.models.property import Property
 from backend.models.auction import Auction
 from backend.models.scraper_source import ScraperSource
+from backend.services.scoring_service import PropertyScoringService, save_score
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/api/scrapers', tags=['scrapers'])
@@ -860,6 +861,21 @@ def _run_scraper(source_id: int):
         source.last_error = first_save_error  # None if all saved OK, else first error seen
         db.commit()
         logger.info("Scrape complete for %s: %d new properties", source.name, new_count)
+
+        # Auto-score all active properties after each scrape
+        try:
+            scorer = PropertyScoringService(db)
+            props = db.query(Property).filter(Property.status == 'active').all()
+            for prop in props:
+                try:
+                    result = scorer.score_property(prop)
+                    save_score(db, prop, result)
+                except Exception as se:
+                    logger.debug("Scoring failed for property %d: %s", prop.id, se)
+            db.commit()
+            logger.info("Auto-scoring complete: %d properties scored", len(props))
+        except Exception as se:
+            logger.warning("Auto-scoring failed: %s", se)
 
     except Exception as e:
         logger.error("Scraper error for source %s: %s", source_id, e)
