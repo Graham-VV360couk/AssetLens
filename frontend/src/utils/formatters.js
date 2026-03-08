@@ -1,6 +1,11 @@
 export const formatCurrency = (value, compact = false) => {
   if (value == null) return '—';
-  if (compact && value >= 1_000_000) return `£${(value / 1_000_000).toFixed(2)}M`;
+  if (compact && value >= 1_000_000) {
+    const m = value / 1_000_000;
+    // Show 2dp only if needed (e.g. £1.25M), otherwise 1dp or whole
+    const formatted = m % 1 === 0 ? m.toFixed(0) : m.toFixed(2).replace(/\.?0+$/, '');
+    return `£${formatted}M`;
+  }
   if (compact && value >= 1_000) return `£${(value / 1_000).toFixed(0)}K`;
   return new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP', maximumFractionDigits: 0 }).format(value);
 };

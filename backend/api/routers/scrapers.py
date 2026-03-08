@@ -88,8 +88,42 @@ def _robots_allowed(url: str) -> bool:
 
 
 def _parse_price(text: str) -> Optional[int]:
+    """Parse a price string into an integer number of pence (pounds actually).
+
+    Handles:
+    - Ranges: "£100,000-£150,000"  → 100000  (take lower bound)
+    - Guide:  "£110,000+"          → 110000
+    - Millions: "£2.5m" / "2.5M"  → 2500000
+    - Thousands: "£150k"           → 150000
+    - Plain:  "£110,000"           → 110000
+    """
     if not text:
         return None
+    text = text.strip()
+
+    # £X.Xm / £Xm notation (millions)
+    m = re.search(r'£?\s*([\d,]+\.?\d*)\s*[mM]\b', text)
+    if m:
+        try:
+            return int(float(m.group(1).replace(',', '')) * 1_000_000)
+        except (ValueError, TypeError):
+            pass
+
+    # £X.Xk / £Xk notation (thousands)
+    m = re.search(r'£?\s*([\d,]+\.?\d*)\s*[kK]\b', text)
+    if m:
+        try:
+            return int(float(m.group(1).replace(',', '')) * 1_000)
+        except (ValueError, TypeError):
+            pass
+
+    # Take the FIRST £X,XXX number (handles ranges, guide +, etc.)
+    m = re.search(r'£?\s*([\d]{1,3}(?:,[\d]{3})*)', text)
+    if m:
+        cleaned = m.group(1).replace(',', '')
+        return int(cleaned) if cleaned else None
+
+    # Last resort: strip everything non-digit
     cleaned = re.sub(r'[^\d]', '', text)
     return int(cleaned) if cleaned else None
 
@@ -324,10 +358,95 @@ DETAIL_SCRAPERS = {
 }
 
 
+def _scrape_allsop_json(source_url: str, session: requests.Session, max_pages: int) -> list:
+    """Fetch all Allsop lots via their internal JSON search API.
+
+    The Allsop platform is a React SPA. Properties are served from
+    /api/search?auction_id=...&available_only=true&page=N&size=N
+    which returns JSON with full lot detail — no HTML scraping needed.
+    """
+    parsed = urlparse(source_url)
+    params_qs = dict(p.split('=', 1) for p in parsed.query.split('&') if '=' in p)
+    auction_id = params_qs.get('auction_id')
+    if not auction_id:
+        logger.warning("Allsop: no auction_id in URL %s", source_url)
+        return []
+
+    api_base = f"{parsed.scheme}://{parsed.netloc}/api/search"
+    page_size = 100  # fetch in batches of 100
+
+    all_listings = []
+    page = 1
+    while page <= max_pages:
+        try:
+            time.sleep(RATE_LIMIT)
+            resp = session.get(api_base, params={
+                'auction_id': auction_id,
+                'available_only': 'true',
+                'page': page,
+                'size': page_size,
+            }, headers={**HEADERS, 'Accept': 'application/json'}, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            results = data.get('data', {}).get('results', [])
+            if not results:
+                break
+
+            for lot in results:
+                address = (
+                    lot.get('full_address') or
+                    lot.get('allsop_address') or
+                    ', '.join(filter(None, [
+                        lot.get('address1'), lot.get('address2'),
+                        lot.get('town'), lot.get('county'), lot.get('postcode')
+                    ]))
+                )
+                if not address or len(address) < 5:
+                    continue
+
+                guide = lot.get('guide_price_lower') or lot.get('website_price_lower') or lot.get('sort_price')
+                guide_price = int(guide) if guide else None
+
+                postcode = lot.get('postcode') or _extract_postcode(address)
+                lot_number = str(lot.get('lot_number_text') or lot.get('lot_number') or '')
+                lot_id = lot.get('allsop_lotid', '')
+                detail_url = (
+                    f"{parsed.scheme}://{parsed.netloc}/lot-overview?lotId={lot_id}"
+                    if lot_id else source_url
+                )
+
+                all_listings.append({
+                    'address': address,
+                    'postcode': postcode,
+                    'guide_price': guide_price,
+                    'lot_number': lot_number[:50],
+                    'source_url': detail_url[:500],
+                    'description': lot.get('property_byline') or lot.get('allsop_propertybyline') or '',
+                    'tenure': (lot.get('property_tenure') or lot.get('allsop_propertytenure') or '')[:50],
+                    'auction_reference': (lot.get('reference') or lot.get('allsop_name') or '')[:100],
+                })
+
+            total = data.get('data', {}).get('total', 0)
+            logger.info("Allsop JSON page %d: %d lots (total=%d)", page, len(results), total)
+            if len(all_listings) >= total:
+                break
+            page += 1
+        except Exception as e:
+            logger.warning("Allsop JSON page %d failed: %s", page, e)
+            break
+
+    return all_listings
+
+
 # Map domain fragments to site-specific extractors
 SITE_HANDLERS = {
     'acuitus.co.uk': _extract_acuitus,
     'agentspropertyauction.com': _extract_agents_property_auction,
+}
+
+# Sites with JSON APIs — bypasses HTML scraping entirely
+JSON_HANDLERS = {
+    'allsop.co.uk': _scrape_allsop_json,
 }
 
 
@@ -641,30 +760,35 @@ def _run_scraper(source_id: int):
         all_listings = []
         domain = urlparse(source.url).netloc.lower()
 
-        # Fetch first page
-        first_soup = _scrape_page(source.url, session)
-        if first_soup:
-            first_page = _extract_listings(first_soup, source.url)
-            all_listings.extend(first_page)
-            logger.info("Source %s page 1: %d listings", source.name, len(first_page))
+        # Check for JSON API handler first (bypasses HTML scraping entirely)
+        json_handler = next((h for pat, h in JSON_HANDLERS.items() if pat in domain), None)
 
-            # Standard page-by-page pagination (follows rel=next, numbered pages,
-            # load-more links, ?page=N — all handled by _find_next_page)
-            url = source.url
-            current_soup = first_soup
-            for page_num in range(2, source.max_pages + 1):
-                next_url = _find_next_page(current_soup, url, page_num)
-                if not next_url or next_url == url:
-                    break
-                current_soup = _scrape_page(next_url, session)
-                if not current_soup:
-                    break
-                page_listings = _extract_listings(current_soup, source.url)
-                if not page_listings:
-                    break
-                all_listings.extend(page_listings)
-                logger.info("Source %s page %d: %d listings", source.name, page_num, len(page_listings))
-                url = next_url
+        if json_handler:
+            all_listings = json_handler(source.url, session, source.max_pages)
+            logger.info("Source %s JSON handler: %d listings", source.name, len(all_listings))
+        else:
+            # HTML scraping with standard pagination
+            first_soup = _scrape_page(source.url, session)
+            if first_soup:
+                first_page = _extract_listings(first_soup, source.url)
+                all_listings.extend(first_page)
+                logger.info("Source %s page 1: %d listings", source.name, len(first_page))
+
+                url = source.url
+                current_soup = first_soup
+                for page_num in range(2, source.max_pages + 1):
+                    next_url = _find_next_page(current_soup, url, page_num)
+                    if not next_url or next_url == url:
+                        break
+                    current_soup = _scrape_page(next_url, session)
+                    if not current_soup:
+                        break
+                    page_listings = _extract_listings(current_soup, source.url)
+                    if not page_listings:
+                        break
+                    all_listings.extend(page_listings)
+                    logger.info("Source %s page %d: %d listings", source.name, page_num, len(page_listings))
+                    url = next_url
 
         # Optional detail page enrichment
         if source.scrape_detail_pages:
@@ -713,9 +837,10 @@ def _run_scraper(source_id: int):
                             auction_house_url=(listing.get('source_url') or '')[:500],
                             is_sold=False,
                             sale_status='upcoming',
-                            description=listing.get('description'),
+                            description=listing.get('description') or None,
                             tenure=(listing.get('tenure') or '')[:50] or None,
                             legal_pack_url=(listing.get('legal_pack_url') or '')[:1000] or None,
+                            auction_reference=(listing.get('auction_reference') or '')[:100] or None,
                         )
                         db.add(auction)
                     new_count += 1
