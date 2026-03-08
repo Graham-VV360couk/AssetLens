@@ -1,0 +1,59 @@
+# ============================================================
+# Render.com deployment configuration
+# Free tier: backend API + PostgreSQL + Redis
+# Deploy at: https://dashboard.render.com/
+# ============================================================
+
+services:
+  # FastAPI Backend
+  - type: web
+    name: assetlens-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: assetlens-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: assetlens-redis
+          type: redis
+          property: connectionString
+      - key: CORS_ORIGINS
+        value: https://assetlens.geeky.net
+      - key: SEARCHLAND_API_KEY
+        sync: false   # Set manually in Render dashboard
+      - key: SMTP_HOST
+        value: smtp.sendgrid.net
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        value: apikey
+      - key: SMTP_PASSWORD
+        sync: false   # Set manually in Render dashboard
+      - key: FROM_EMAIL
+        value: alerts@assetlens.co.uk
+      - key: ALERT_EMAIL
+        sync: false   # Set manually in Render dashboard
+      - key: DASHBOARD_URL
+        value: https://assetlens.geeky.net
+      - key: ALERT_SCORE_THRESHOLD
+        value: "70"
+      - key: ML_MODEL_PATH
+        value: /app/models/valuation_model.pkl
+
+  # Redis (free tier: 25MB)
+  - type: redis
+    name: assetlens-redis
+    plan: free
+    maxmemoryPolicy: allkeys-lru
+
+databases:
+  # PostgreSQL (free tier: 1GB, 90-day expiry on free plan)
+  - name: assetlens-db
+    plan: free
+    databaseName: assetlens
+    user: assetlens

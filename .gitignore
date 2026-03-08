@@ -38,6 +38,12 @@ ENV/
 .env
 .env.local
 .env.*.local
+# Allow frontend production env (no secrets, just API URL)
+!frontend/.env.production
+
+# Build output / deploy packages
+deploy/
+assetlens-frontend.zip
 
 # IDEs
 .vscode/
