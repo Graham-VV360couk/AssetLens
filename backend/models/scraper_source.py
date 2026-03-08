@@ -23,6 +23,9 @@ class ScraperSource(Base, TimestampMixin):
     last_error = Column(Text)
     total_properties_found = Column(Integer, default=0)
 
+    # Scraping options
+    scrape_detail_pages = Column(Boolean, default=False)  # follow individual property links
+
     # Site investigation
     investigation_status = Column(String(20))  # pending, running, done, error
     investigation_ran_at = Column(DateTime)

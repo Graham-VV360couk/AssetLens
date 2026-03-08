@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   Plus, Play, Trash2, ToggleLeft, ToggleRight, Globe, RefreshCw,
   CheckCircle, XCircle, Clock, AlertCircle, Search, ChevronDown, ChevronUp,
-  Layers, Link2, ArrowRight, Zap
+  Layers, Link2, ArrowRight, Zap, Pencil, Save, X, FileText
 } from 'lucide-react';
 import { scrapersApi } from '../services/api';
 import toast from 'react-hot-toast';
@@ -50,15 +50,131 @@ function InvestigationBadge({ status }) {
 
 function PaginationTypeBadge({ type }) {
   const map = {
-    standard_next: { colour: 'text-emerald-400 bg-emerald-400/10', label: 'Next-page nav' },
-    numbered:      { colour: 'text-emerald-400 bg-emerald-400/10', label: 'Numbered pages' },
-    query_param:   { colour: 'text-emerald-400 bg-emerald-400/10', label: '?page=N' },
-    ajax_load_more:{ colour: 'text-amber-400 bg-amber-400/10',     label: 'AJAX / Load More' },
-    single_page:   { colour: 'text-slate-400 bg-slate-800',        label: 'Single page' },
-    unknown:       { colour: 'text-slate-400 bg-slate-800',        label: 'Unknown' },
+    standard_next:  { colour: 'text-emerald-400 bg-emerald-400/10', label: 'Next-page nav' },
+    numbered:       { colour: 'text-emerald-400 bg-emerald-400/10', label: 'Numbered pages' },
+    query_param:    { colour: 'text-emerald-400 bg-emerald-400/10', label: '?page=N' },
+    ajax_load_more: { colour: 'text-amber-400 bg-amber-400/10',     label: 'AJAX / Load More' },
+    single_page:    { colour: 'text-slate-400 bg-slate-800',        label: 'Single page' },
+    unknown:        { colour: 'text-slate-400 bg-slate-800',        label: 'Unknown' },
   };
   const { colour, label } = map[type] || map.unknown;
   return <span className={clsx('text-xs font-medium px-2 py-0.5 rounded-lg', colour)}>{label}</span>;
+}
+
+function EditPanel({ source, onSave, onCancel }) {
+  const [form, setForm] = useState({
+    name: source.name,
+    url: source.url,
+    source_type: source.source_type,
+    max_pages: source.max_pages,
+    notes: source.notes || '',
+    scrape_detail_pages: source.scrape_detail_pages || false,
+  });
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (!form.name.trim() || !form.url.trim()) return toast.error('Name and URL required');
+    setSaving(true);
+    try {
+      await onSave(form);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="border-t border-slate-800 bg-slate-800/30 px-5 py-4 space-y-3">
+      <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+        <Pencil size={12} className="text-emerald-400" /> Edit Source
+      </h3>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs text-slate-500 block mb-1">Name</label>
+          <input
+            className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+            value={form.name}
+            onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+          />
+        </div>
+        <div>
+          <label className="text-xs text-slate-500 block mb-1">Source Type</label>
+          <select
+            className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
+            value={form.source_type}
+            onChange={e => setForm(f => ({ ...f, source_type: e.target.value }))}
+          >
+            <option value="auction">Auction</option>
+            <option value="estate_agent">Estate Agent</option>
+            <option value="rental">Rental</option>
+          </select>
+        </div>
+        <div className="md:col-span-2">
+          <label className="text-xs text-slate-500 block mb-1">URL</label>
+          <input
+            className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+            value={form.url}
+            onChange={e => setForm(f => ({ ...f, url: e.target.value }))}
+          />
+        </div>
+        <div>
+          <label className="text-xs text-slate-500 block mb-1">Max pages per scrape run</label>
+          <input
+            type="number" min={1} max={50}
+            className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
+            value={form.max_pages}
+            onChange={e => setForm(f => ({ ...f, max_pages: parseInt(e.target.value) || 1 }))}
+          />
+          <p className="text-xs text-slate-600 mt-1">For AJAX/Load More sites, each "page" = one Load More click (~9 properties).</p>
+        </div>
+        <div>
+          <label className="text-xs text-slate-500 block mb-1">Notes</label>
+          <input
+            className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+            value={form.notes}
+            onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+          />
+        </div>
+      </div>
+
+      {/* Detail pages toggle */}
+      <div className="flex items-start gap-3 bg-slate-800 rounded-xl p-3">
+        <button
+          type="button"
+          onClick={() => setForm(f => ({ ...f, scrape_detail_pages: !f.scrape_detail_pages }))}
+          className="mt-0.5 shrink-0"
+        >
+          {form.scrape_detail_pages
+            ? <ToggleRight size={22} className="text-emerald-400" />
+            : <ToggleLeft size={22} className="text-slate-500" />
+          }
+        </button>
+        <div>
+          <p className="text-sm text-white font-medium">Fetch detail pages</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Follow each property link to scrape extra fields: description, tenure, legal pack URL, lot reference.
+            Adds ~2s per property — 100 properties ≈ 3 extra minutes per run.
+          </p>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 pt-1">
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-white text-sm font-semibold rounded-xl px-4 py-2 transition-colors"
+        >
+          {saving ? <RefreshCw size={13} className="animate-spin" /> : <Save size={13} />}
+          Save
+        </button>
+        <button
+          onClick={onCancel}
+          className="flex items-center gap-2 text-slate-400 hover:text-slate-200 text-sm rounded-xl px-4 py-2 hover:bg-slate-800 transition-colors"
+        >
+          <X size={13} /> Cancel
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function InvestigationPanel({ source, onInvestigate }) {
@@ -97,7 +213,6 @@ function InvestigationPanel({ source, onInvestigate }) {
 
   return (
     <div className="border-t border-slate-800 bg-slate-800/20 px-5 py-4 space-y-4">
-      {/* Summary row */}
       <div className="flex flex-wrap gap-4 text-xs">
         <div className="flex items-center gap-2">
           <Layers size={13} className="text-slate-500" />
@@ -109,8 +224,8 @@ function InvestigationPanel({ source, onInvestigate }) {
           <Globe size={13} className="text-slate-500" />
           <span className="text-slate-400">Pagination:</span>
           <PaginationTypeBadge type={pagination.type} />
-          {pagination.max_pages_recommended && (
-            <span className="text-slate-600">rec. max {pagination.max_pages_recommended} pages</span>
+          {pagination.max_page_found > 1 && (
+            <span className="text-slate-600">{pagination.max_page_found} pages detected</span>
           )}
         </div>
         {detail.has_detail_page !== undefined && (
@@ -118,24 +233,25 @@ function InvestigationPanel({ source, onInvestigate }) {
             <Link2 size={13} className="text-slate-500" />
             <span className="text-slate-400">Detail pages:</span>
             {detail.has_detail_page
-              ? <span className="text-emerald-400 font-medium">Yes — extra data available</span>
+              ? <span className="text-emerald-400 font-medium">Extra data available</span>
               : <span className="text-slate-500">No extra data</span>
             }
           </div>
         )}
       </div>
 
-      {/* Extra detail fields */}
       {detail.extra_fields_available && detail.extra_fields_available.length > 0 && (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 items-center">
           <span className="text-xs text-slate-500">Fields on detail pages:</span>
           {detail.extra_fields_available.map(f => (
             <span key={f} className="text-xs bg-slate-700 text-slate-300 px-2 py-0.5 rounded-md">{f}</span>
           ))}
+          {!source.scrape_detail_pages && (
+            <span className="text-xs text-amber-400/70 ml-1">(enable "Fetch detail pages" in settings to collect these)</span>
+          )}
         </div>
       )}
 
-      {/* AJAX indicators */}
       {ajax.length > 0 && (
         <div className="flex items-start gap-2">
           <Zap size={13} className="text-amber-400 mt-0.5 shrink-0" />
@@ -145,7 +261,6 @@ function InvestigationPanel({ source, onInvestigate }) {
         </div>
       )}
 
-      {/* Recommendations */}
       {recs.length > 0 && (
         <div className="space-y-1.5">
           {recs.map((r, i) => (
@@ -174,7 +289,7 @@ function InvestigationPanel({ source, onInvestigate }) {
   );
 }
 
-const EMPTY_FORM = { name: '', url: '', source_type: 'auction', max_pages: 5, notes: '' };
+const EMPTY_FORM = { name: '', url: '', source_type: 'auction', max_pages: 5, notes: '', scrape_detail_pages: false };
 
 export default function Scrapers() {
   const [sources, setSources] = useState([]);
@@ -182,7 +297,8 @@ export default function Scrapers() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [adding, setAdding] = useState(false);
   const [running, setRunning] = useState({});
-  const [expanded, setExpanded] = useState({});
+  const [expanded, setExpanded] = useState({});  // which rows show investigation panel
+  const [editing, setEditing] = useState({});     // which rows show edit panel
 
   const load = async () => {
     try {
@@ -217,7 +333,6 @@ export default function Scrapers() {
       const created = await scrapersApi.add(form);
       setSources(prev => [created, ...prev]);
       setForm(EMPTY_FORM);
-      // Auto-expand to show investigation progress
       setExpanded(prev => ({ ...prev, [created.id]: true }));
       toast.success(`Added ${created.name} — analysing site…`);
     } catch {
@@ -247,6 +362,17 @@ export default function Scrapers() {
     }
   };
 
+  const handleSave = async (id, payload) => {
+    try {
+      const updated = await scrapersApi.update(id, payload);
+      setSources(prev => prev.map(s => s.id === id ? updated : s));
+      setEditing(prev => ({ ...prev, [id]: false }));
+      toast.success('Settings saved');
+    } catch {
+      toast.error('Failed to save');
+    }
+  };
+
   const handleRun = async (id, name) => {
     try {
       setRunning(prev => ({ ...prev, [id]: true }));
@@ -268,15 +394,26 @@ export default function Scrapers() {
       await scrapersApi.investigate(id);
       setSources(prev => prev.map(s => s.id === id ? { ...s, investigation_status: 'pending' } : s));
       setExpanded(prev => ({ ...prev, [id]: true }));
+      setEditing(prev => ({ ...prev, [id]: false }));
       toast.success(`Analysing ${name}…`);
     } catch (err) {
       toast.error(err.message || 'Failed to start investigation');
     }
   };
 
-  const toggleExpand = (id) => setExpanded(prev => ({ ...prev, [id]: !prev[id] }));
+  const toggleExpand = (id) => {
+    setExpanded(prev => ({ ...prev, [id]: !prev[id] }));
+    if (editing[id]) setEditing(prev => ({ ...prev, [id]: false }));
+  };
 
-  const fmtDate = (d) => d ? new Date(d).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+  const toggleEdit = (id) => {
+    setEditing(prev => ({ ...prev, [id]: !prev[id] }));
+    if (expanded[id]) setExpanded(prev => ({ ...prev, [id]: false }));
+  };
+
+  const fmtDate = (d) => d
+    ? new Date(d).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })
+    : '—';
 
   return (
     <div className="p-6 space-y-6">
@@ -295,7 +432,7 @@ export default function Scrapers() {
         </h2>
         <form onSubmit={handleAdd} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
           <input
-            className="bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 col-span-1"
+            className="bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
             placeholder="Name (e.g. Allsop Auctions)"
             value={form.name}
             onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
@@ -317,8 +454,7 @@ export default function Scrapers() {
               <option value="rental">Rental</option>
             </select>
             <input
-              type="number"
-              min={1} max={20}
+              type="number" min={1} max={50}
               className="w-16 bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
               title="Max pages to scrape"
               value={form.max_pages}
@@ -373,17 +509,28 @@ export default function Scrapers() {
                   <button
                     onClick={() => toggleExpand(source.id)}
                     className="text-slate-600 hover:text-slate-400 p-0.5 shrink-0"
+                    title="Show analysis"
                   >
                     {expanded[source.id] ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
                   </button>
 
-                  {/* Name + URL */}
+                  {/* Name + URL + badges */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-white font-medium text-sm">{source.name}</span>
                       <span className={clsx('text-xs font-medium px-2 py-0.5 rounded-lg shrink-0', TYPE_COLOURS[source.source_type] || 'text-slate-400 bg-slate-800')}>
                         {TYPE_LABELS[source.source_type] || source.source_type}
                       </span>
+                      {/* max_pages badge */}
+                      <span className="text-xs text-slate-500 bg-slate-800 px-2 py-0.5 rounded-lg shrink-0" title="Max pages per scrape run">
+                        {source.max_pages}p
+                      </span>
+                      {/* detail pages indicator */}
+                      {source.scrape_detail_pages && (
+                        <span className="flex items-center gap-1 text-xs text-purple-400 bg-purple-400/10 px-2 py-0.5 rounded-lg shrink-0" title="Fetching detail pages">
+                          <FileText size={10} /> details
+                        </span>
+                      )}
                       <InvestigationBadge status={source.investigation_status} />
                     </div>
                     <a
@@ -428,6 +575,16 @@ export default function Scrapers() {
                       <Search size={14} />
                     </button>
                     <button
+                      onClick={() => toggleEdit(source.id)}
+                      title="Edit settings"
+                      className={clsx(
+                        'p-1.5 rounded-lg hover:bg-slate-800 transition-colors',
+                        editing[source.id] ? 'text-emerald-400' : 'text-slate-500 hover:text-slate-200'
+                      )}
+                    >
+                      <Pencil size={14} />
+                    </button>
+                    <button
                       onClick={() => handleToggle(source.id)}
                       title={source.is_active ? 'Disable' : 'Enable'}
                       className="p-1.5 rounded-lg text-slate-500 hover:text-slate-200 hover:bg-slate-800 transition-colors"
@@ -455,9 +612,26 @@ export default function Scrapers() {
                     </p>
                   </div>
                 )}
+                {/* Save error (success run but some listings failed) */}
+                {source.last_run_status === 'success' && source.last_error && (
+                  <div className="px-12 pb-2">
+                    <p className="text-amber-500 text-xs bg-amber-500/10 rounded-lg px-3 py-1.5" title={source.last_error}>
+                      Some listings had save errors: {source.last_error.slice(0, 150)}
+                    </p>
+                  </div>
+                )}
+
+                {/* Edit panel */}
+                {editing[source.id] && (
+                  <EditPanel
+                    source={source}
+                    onSave={(payload) => handleSave(source.id, payload)}
+                    onCancel={() => setEditing(prev => ({ ...prev, [source.id]: false }))}
+                  />
+                )}
 
                 {/* Investigation panel */}
-                {expanded[source.id] && (
+                {expanded[source.id] && !editing[source.id] && (
                   <InvestigationPanel
                     source={source}
                     onInvestigate={() => handleInvestigate(source.id, source.name)}
@@ -473,9 +647,9 @@ export default function Scrapers() {
       <div className="flex items-start gap-3 bg-slate-900/50 border border-slate-800 rounded-xl p-4">
         <AlertCircle size={16} className="text-amber-400 mt-0.5 shrink-0" />
         <div className="text-xs text-slate-500 space-y-1">
-          <p><span className="text-slate-300 font-medium">Site analysis:</span> When you add a source, AssetLens automatically analyses its structure — detecting how many properties are listed, what pagination strategy the site uses, and whether individual property pages contain extra data.</p>
-          <p><span className="text-slate-300 font-medium">AJAX / Load More sites:</span> Sites like agentspropertyauction.com load listings via JavaScript. Standard scraping captures only the initial page. Full extraction requires Playwright (headless browser mode).</p>
-          <p><span className="text-slate-300 font-medium">robots.txt:</span> Sources that block scraping will be skipped automatically. The 2s rate limit applies between all requests.</p>
+          <p><span className="text-slate-300 font-medium">Site analysis:</span> When you add a source, AssetLens automatically analyses its structure — detecting pagination strategy and whether property detail pages contain extra data.</p>
+          <p><span className="text-slate-300 font-medium">AJAX / Load More sites:</span> agentspropertyauction.com uses the WordPress Ajax Load More plugin. AssetLens calls the AJAX endpoint directly to get all properties — no headless browser needed. Set "Max pages" to control how many Load More clicks to simulate (9 properties each).</p>
+          <p><span className="text-slate-300 font-medium">Detail pages:</span> Enable "Fetch detail pages" in settings to collect description, tenure, and legal pack URLs from individual property pages. This adds ~2s per property to each run.</p>
         </div>
       </div>
     </div>

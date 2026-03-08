@@ -38,6 +38,16 @@ class ScraperSourceCreate(BaseModel):
     source_type: str = 'auction'
     max_pages: int = 5
     notes: Optional[str] = None
+    scrape_detail_pages: bool = False
+
+
+class ScraperSourceUpdate(BaseModel):
+    name: Optional[str] = None
+    url: Optional[str] = None
+    source_type: Optional[str] = None
+    max_pages: Optional[int] = None
+    notes: Optional[str] = None
+    scrape_detail_pages: Optional[bool] = None
 
 
 class ScraperSourceResponse(BaseModel):
@@ -48,6 +58,7 @@ class ScraperSourceResponse(BaseModel):
     is_active: bool
     max_pages: int
     notes: Optional[str]
+    scrape_detail_pages: Optional[bool]
     last_run_at: Optional[datetime]
     last_run_status: Optional[str]
     last_run_properties: Optional[int]
@@ -166,6 +177,151 @@ def _extract_agents_property_auction(soup: BeautifulSoup, base_url: str) -> list
         except Exception:
             continue
     return listings
+
+
+def _fetch_wp_alm_pages(first_soup: BeautifulSoup, base_url: str,
+                         session: requests.Session, extra_pages: int) -> list:
+    """Fetch additional pages via the WordPress Ajax Load More plugin.
+
+    Called after the first page has already been scraped. Sends POST requests
+    to /wp-admin/admin-ajax.php with action=alm_get_posts, incrementing the
+    page counter until the site signals no more results or we hit extra_pages.
+    """
+    parsed = urlparse(base_url)
+    ajax_url = f"{parsed.scheme}://{parsed.netloc}/wp-admin/admin-ajax.php"
+
+    # Pull the WP nonce from any inline script
+    nonce = None
+    for script in first_soup.find_all('script'):
+        text = script.string or ''
+        m = re.search(r'"nonce"\s*:\s*"([a-f0-9]+)"', text)
+        if m:
+            nonce = m.group(1)
+            break
+
+    if not nonce:
+        logger.info("ALM: no nonce found for %s — skipping AJAX pagination", base_url)
+        return []
+
+    # Read button data-attributes for query parameters
+    btn = first_soup.select_one(
+        '.alm-load-more-btn, [data-repeater], button[data-post-type]'
+    )
+    posts_per_page = int(btn.get('data-posts-per-page', 9)) if btn else 9
+    post_type = (btn.get('data-post-type') or 'post') if btn else 'post'
+    repeater = (btn.get('data-repeater') or 'default') if btn else 'default'
+
+    all_listings = []
+    for page in range(1, extra_pages + 1):
+        try:
+            time.sleep(RATE_LIMIT)
+            resp = session.post(ajax_url, data={
+                'action': 'alm_get_posts',
+                'nonce': nonce,
+                'post_type': post_type,
+                'posts_per_page': str(posts_per_page),
+                'page': str(page),
+                'offset': str(page * posts_per_page),
+                'repeater': repeater,
+                'canonical_url': base_url,
+                'url': base_url,
+            }, headers=HEADERS, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            html = (data.get('html') or '').strip()
+            if not html:
+                logger.info("ALM: empty html on page %d, stopping", page)
+                break
+            page_soup = BeautifulSoup(html, 'html.parser')
+            listings = _extract_agents_property_auction(page_soup, base_url)
+            if not listings:
+                break
+            all_listings.extend(listings)
+            logger.info("ALM page %d: %d listings", page, len(listings))
+            # ALM sets 'remain' false (boolean or string) when exhausted
+            remain = data.get('remain', True)
+            if remain is False or remain == 'false' or remain == 0:
+                break
+        except Exception as e:
+            logger.warning("ALM AJAX page %d failed: %s", page, e)
+            break
+
+    return all_listings
+
+
+def _scrape_detail_acuitus(url: str, session: requests.Session) -> dict:
+    """Fetch an Acuitus lot detail page and return extra fields."""
+    extra = {}
+    try:
+        soup = _scrape_page(url, session)
+        if not soup:
+            return extra
+        # Tenure
+        tenure_el = soup.select_one('[class*="tenure"], .lot-details dt:-soup-contains("Tenure") + dd')
+        if tenure_el:
+            extra['tenure'] = tenure_el.get_text(strip=True)[:50]
+        # Description
+        desc_el = soup.select_one('.lot-description, .property-description, article .content')
+        if desc_el:
+            extra['description'] = desc_el.get_text(separator=' ', strip=True)[:2000]
+        # Auction date (more precise)
+        date_el = soup.select_one('[class*="auction-date"] time, time[datetime]')
+        if date_el:
+            extra['auction_date_text'] = date_el.get('datetime') or date_el.get_text(strip=True)
+        # Legal pack
+        legal_el = soup.select_one('a[href*="legal"], a[href*="pack"]')
+        if legal_el:
+            extra['legal_pack_url'] = urljoin(url, legal_el['href'])[:1000]
+    except Exception as e:
+        logger.debug("Acuitus detail page %s: %s", url, e)
+    return extra
+
+
+def _scrape_detail_apa(url: str, session: requests.Session) -> dict:
+    """Fetch an agentspropertyauction.com detail page and return extra fields."""
+    extra = {}
+    try:
+        soup = _scrape_page(url, session)
+        if not soup:
+            return extra
+        # Description — look for the main content block
+        desc_el = soup.select_one(
+            '.property-description, .entry-content, .property-details-description, article .content'
+        )
+        if desc_el:
+            extra['description'] = desc_el.get_text(separator=' ', strip=True)[:2000]
+        # Guide price (may be more detailed on the detail page)
+        price_el = soup.select_one('[class*="guide-price"], [class*="price"]')
+        if price_el:
+            p = _parse_price(price_el.get_text())
+            if p:
+                extra['guide_price'] = p
+        # Tenure
+        for label_el in soup.select('th, dt, label, strong'):
+            label_text = label_el.get_text(strip=True).lower()
+            if 'tenure' in label_text:
+                value_el = label_el.find_next_sibling() or label_el.find_next('td') or label_el.find_next('dd')
+                if value_el:
+                    extra['tenure'] = value_el.get_text(strip=True)[:50]
+                    break
+        # Legal pack link
+        legal_el = soup.select_one('a[href*="legal"], a[href*="pack"], a:-soup-contains("Legal Pack")')
+        if legal_el:
+            extra['legal_pack_url'] = urljoin(url, legal_el['href'])[:1000]
+        # Lot reference
+        ref_el = soup.select_one('[class*="lot-ref"], [class*="reference"], [class*="lot-num"]')
+        if ref_el:
+            extra['lot_number'] = ref_el.get_text(strip=True)[:50]
+    except Exception as e:
+        logger.debug("APA detail page %s: %s", url, e)
+    return extra
+
+
+# Map domain fragments to detail page scrapers
+DETAIL_SCRAPERS = {
+    'acuitus.co.uk': _scrape_detail_acuitus,
+    'agentspropertyauction.com': _scrape_detail_apa,
+}
 
 
 # Map domain fragments to site-specific extractors
@@ -480,22 +636,54 @@ def _run_scraper(source_id: int):
 
         session = requests.Session()
         all_listings = []
-        url = source.url
+        domain = urlparse(source.url).netloc.lower()
 
-        for page_num in range(1, source.max_pages + 1):
-            soup = _scrape_page(url, session)
-            if not soup:
-                break
-            page_listings = _extract_listings(soup, source.url)
-            if not page_listings:
-                break
-            all_listings.extend(page_listings)
-            logger.info("Source %s page %d: %d listings", source.name, page_num, len(page_listings))
+        # Fetch first page
+        first_soup = _scrape_page(source.url, session)
+        if first_soup:
+            first_page = _extract_listings(first_soup, source.url)
+            all_listings.extend(first_page)
+            logger.info("Source %s page 1: %d listings", source.name, len(first_page))
 
-            next_url = _find_next_page(soup, url, page_num + 1)
-            if not next_url or next_url == url:
-                break
-            url = next_url
+            # AJAX Load More sites (e.g. WordPress ALM plugin)
+            if 'agentspropertyauction.com' in domain:
+                ajax_listings = _fetch_wp_alm_pages(
+                    first_soup, source.url, session, max(source.max_pages - 1, 1) * 13
+                )
+                all_listings.extend(ajax_listings)
+                logger.info("Source %s ALM total: %d listings", source.name, len(all_listings))
+            else:
+                # Standard page-by-page pagination
+                url = source.url
+                for page_num in range(2, source.max_pages + 1):
+                    next_url = _find_next_page(first_soup, url, page_num)
+                    if not next_url or next_url == url:
+                        break
+                    soup = _scrape_page(next_url, session)
+                    if not soup:
+                        break
+                    page_listings = _extract_listings(soup, source.url)
+                    if not page_listings:
+                        break
+                    all_listings.extend(page_listings)
+                    logger.info("Source %s page %d: %d listings", source.name, page_num, len(page_listings))
+                    first_soup = soup
+                    url = next_url
+
+        # Optional detail page enrichment
+        if source.scrape_detail_pages:
+            detail_fn = None
+            for pattern, fn in DETAIL_SCRAPERS.items():
+                if pattern in domain:
+                    detail_fn = fn
+                    break
+            if detail_fn:
+                logger.info("Enriching %d listings with detail pages", len(all_listings))
+                for listing in all_listings:
+                    detail_url = listing.get('source_url')
+                    if detail_url and detail_url != source.url:
+                        extra = detail_fn(detail_url, session)
+                        listing.update({k: v for k, v in extra.items() if v})
 
         # Save to database
         new_count = 0
@@ -529,6 +717,9 @@ def _run_scraper(source_id: int):
                             auction_house_url=(listing.get('source_url') or '')[:500],
                             is_sold=False,
                             sale_status='upcoming',
+                            description=listing.get('description'),
+                            tenure=(listing.get('tenure') or '')[:50] or None,
+                            legal_pack_url=(listing.get('legal_pack_url') or '')[:1000] or None,
                         )
                         db.add(auction)
                     new_count += 1
@@ -589,6 +780,18 @@ def delete_source(source_id: int, db: Session = Depends(get_db)):
     db.delete(source)
     db.commit()
     return {"message": "Deleted"}
+
+
+@router.patch('/{source_id}', response_model=ScraperSourceResponse)
+def update_source(source_id: int, payload: ScraperSourceUpdate, db: Session = Depends(get_db)):
+    source = db.query(ScraperSource).filter(ScraperSource.id == source_id).first()
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(source, field, value)
+    db.commit()
+    db.refresh(source)
+    return source
 
 
 @router.patch('/{source_id}/toggle', response_model=ScraperSourceResponse)

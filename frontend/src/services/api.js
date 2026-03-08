@@ -207,6 +207,10 @@ export const scrapersApi = {
     const response = await apiClient.delete(`/api/scrapers/${id}`);
     return response.data;
   },
+  update: async (id, payload) => {
+    const response = await apiClient.patch(`/api/scrapers/${id}`, payload);
+    return response.data;
+  },
   toggle: async (id) => {
     const response = await apiClient.patch(`/api/scrapers/${id}/toggle`);
     return response.data;
