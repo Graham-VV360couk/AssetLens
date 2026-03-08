@@ -407,7 +407,7 @@ def _scrape_allsop_json(source_url: str, session: requests.Session, max_pages: i
                 guide = lot.get('guide_price_lower') or lot.get('website_price_lower') or lot.get('sort_price')
                 guide_price = int(guide) if guide else None
 
-                postcode = lot.get('postcode') or _extract_postcode(address)
+                postcode = (lot.get('postcode') or _extract_postcode(address) or '')[:10].strip()
                 lot_number = str(lot.get('lot_number_text') or lot.get('lot_number') or '')
                 lot_id = lot.get('allsop_lotid', '')
                 detail_url = (
@@ -818,7 +818,7 @@ def _run_scraper(source_id: int):
                 if not existing:
                     prop = Property(
                         address=listing['address'],
-                        postcode=listing.get('postcode', '') or '',
+                        postcode=(listing.get('postcode') or '')[:10].strip(),
                         property_type='unknown',
                         asking_price=listing.get('guide_price'),
                         status='active',
