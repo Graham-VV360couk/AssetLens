@@ -61,19 +61,30 @@ class PropertyDataService:
             logger.warning("PROPERTYDATA_API_KEY not set — skipping enrichment")
             return False
 
-        postcode = (prop.postcode or "").replace(" ", "")
+        postcode_raw = (prop.postcode or "")
+        postcode = postcode_raw.replace(" ", "")
         pd_type = _pd_type(prop.property_type)
         beds = prop.bedrooms or 3
 
         success = False
 
-        # --- AVM ---
+        # --- AVM (premium endpoint; falls back to /prices average if not in plan) ---
         avm = self._avm(postcode, pd_type, beds)
         if avm:
             score.pd_avm = avm.get("estimate")
             score.pd_avm_lower = avm.get("range_lower")
             score.pd_avm_upper = avm.get("range_upper")
             success = True
+        else:
+            # /prices returns current asking-price average for same type+beds in area
+            prices = self._prices(postcode_raw, pd_type, beds)
+            if prices:
+                avg = prices.get("average")
+                if avg and avg > 0:
+                    score.pd_avm = float(avg)
+                    score.pd_avm_lower = prices.get("70pc_range", [None])[0]
+                    score.pd_avm_upper = (prices.get("70pc_range") or [None, None])[1]
+                    success = True
         if _PD_CALL_DELAY > 0:
             time.sleep(_PD_CALL_DELAY)
 
@@ -138,6 +149,11 @@ class PropertyDataService:
     def _rental(self, postcode: str, pd_type: str, beds: int) -> Optional[dict]:
         return self._call("rental-valuation", {"key": self.api_key, "postcode": postcode,
                                                "property_type": pd_type, "bedrooms": beds})
+
+    def _prices(self, postcode: str, pd_type: str, beds: int) -> Optional[dict]:
+        """Current listing prices average (Rightmove/Zoopla/OTM) — used as AVM fallback."""
+        return self._call("prices", {"key": self.api_key, "postcode": postcode,
+                                     "property_type": pd_type, "bedrooms": beds})
 
     def _flood_risk(self, postcode: str) -> Optional[dict]:
         return self._call("flood-risk", {"key": self.api_key, "postcode": postcode})
