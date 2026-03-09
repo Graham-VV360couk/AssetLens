@@ -1351,12 +1351,27 @@ def _run_scraper(source_id: int):
         logger.info("Scrape complete for %s: %d new, %d merged", source.name, new_count, merged_count)
         _db_log(db, source_id, run_id, 'info', msg)
 
-        # --- Step 1: Score all active properties ---
+        # --- Step 1: Score new/unscored properties only ---
+        # Full re-score of the whole portfolio is available via the dashboard
+        # "Re-score All" button. Here we only score:
+        #   a) properties added or merged in this run
+        #   b) any active properties that have never been scored yet
         try:
-            _db_log(db, source_id, run_id, 'info', 'Running investment scoring…')
+            _db_log(db, source_id, run_id, 'info', 'Running investment scoring for new/unscored properties…')
             scorer = PropertyScoringService(db)
-            props = db.query(Property).filter(Property.status == 'active').all()
-            for prop in props:
+
+            # Unscored active properties (no PropertyScore row yet)
+            unscored_ids = [
+                row[0] for row in
+                db.query(Property.id)
+                .outerjoin(PropertyScore, PropertyScore.property_id == Property.id)
+                .filter(Property.status == 'active', PropertyScore.id.is_(None))
+                .all()
+            ]
+            score_ids = list(set(new_property_ids) | set(unscored_ids))
+
+            props_to_score = db.query(Property).filter(Property.id.in_(score_ids)).all() if score_ids else []
+            for prop in props_to_score:
                 try:
                     existing_score = db.query(PropertyScore).filter(
                         PropertyScore.property_id == prop.id
@@ -1366,7 +1381,9 @@ def _run_scraper(source_id: int):
                 except Exception as se:
                     logger.debug("Scoring failed for property %d: %s", prop.id, se)
             db.commit()
-            _db_log(db, source_id, run_id, 'info', f'Scoring complete: {len(props)} properties')
+            _db_log(db, source_id, run_id, 'info',
+                    f'Scoring complete: {len(props_to_score)} properties '
+                    f'({new_count} new, {len(unscored_ids)} previously unscored)')
         except Exception as se:
             logger.warning("Auto-scoring failed: %s", se)
             _db_log(db, source_id, run_id, 'warning', f'Scoring failed: {se}')
