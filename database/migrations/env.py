@@ -17,7 +17,7 @@ load_dotenv()
 
 # Import models
 from backend.models.base import Base, metadata
-from backend.models import Property, PropertySource, PropertyScore, SalesHistory, Rental, HMORegister, Auction
+from backend.models import Property, PropertySource, PropertyScore, SalesHistory, Rental, HMORegister, Auction, ScraperRunLog, PropertyAIInsight
 
 # this is the Alembic Config object
 config = context.config

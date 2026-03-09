@@ -7,9 +7,17 @@ import YieldMeter from './YieldMeter';
 import PriceBandBadge from './PriceBandBadge';
 import { formatCurrency, propertyTypeIcon } from '../../utils/formatters';
 
+const VERDICT_STYLE = {
+  STRONG_BUY: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
+  BUY:        'bg-teal-500/20 text-teal-300 border-teal-500/40',
+  HOLD:       'bg-amber-500/20 text-amber-300 border-amber-500/40',
+  AVOID:      'bg-red-500/20 text-red-300 border-red-500/40',
+};
+
 export default function PropertyCard({ property }) {
   const navigate = useNavigate();
   const score = property.score;
+  const verdict = property.ai_insight?.verdict;
 
   return (
     <div
@@ -25,6 +33,11 @@ export default function PropertyCard({ property }) {
           <div className="flex items-center gap-2 mb-1">
             <span className="text-lg">{propertyTypeIcon(property.property_type)}</span>
             {score && <PriceBandBadge band={score.price_band} size="sm" />}
+            {verdict && (
+              <span className={clsx('inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded border', VERDICT_STYLE[verdict])}>
+                AI: {verdict.replace('_', ' ')}
+              </span>
+            )}
             {property.is_reviewed && (
               <span className="inline-flex items-center gap-1 text-xs text-slate-500">
                 <CheckCircle size={11} /> Reviewed

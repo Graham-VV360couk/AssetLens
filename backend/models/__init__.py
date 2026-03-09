@@ -9,6 +9,8 @@ from .rental import Rental
 from .hmo import HMORegister
 from .auction import Auction
 from .scraper_source import ScraperSource
+from .scraper_run_log import ScraperRunLog
+from .property_ai_insight import PropertyAIInsight
 
 __all__ = [
     'Base',
@@ -20,4 +22,6 @@ __all__ = [
     'HMORegister',
     'Auction',
     'ScraperSource',
+    'ScraperRunLog',
+    'PropertyAIInsight',
 ]

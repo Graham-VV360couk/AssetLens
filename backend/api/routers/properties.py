@@ -14,6 +14,7 @@ from backend.api.schemas import (
     SalesHistoryItem, ReviewResponse,
 )
 from backend.models.property import Property, PropertyScore, PropertySource
+from backend.models.property_ai_insight import PropertyAIInsight
 from backend.models.sales_history import SalesHistory
 from backend.models.auction import Auction
 
@@ -27,7 +28,7 @@ def _build_query(db: Session, filters: PropertyFilters):
     q = (
         db.query(Property)
         .outerjoin(PropertyScore, Property.id == PropertyScore.property_id)
-        .options(joinedload(Property.score))
+        .options(joinedload(Property.score), joinedload(Property.ai_insight))
     )
 
     if filters.status:
@@ -137,6 +138,7 @@ def get_property(property_id: int, db: Session = Depends(get_db)):
             joinedload(Property.score),
             joinedload(Property.sources),
             joinedload(Property.auctions),
+            joinedload(Property.ai_insight),
         )
         .filter(Property.id == property_id)
         .first()

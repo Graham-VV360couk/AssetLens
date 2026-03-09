@@ -3,8 +3,10 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   ArrowLeft, MapPin, Bed, Bath, Square, CheckCircle, Circle,
-  ExternalLink, Calendar, Building2, AlertTriangle
+  ExternalLink, Calendar, Building2, AlertTriangle, Brain,
+  ThumbsUp, ThumbsDown, Lightbulb, Play
 } from 'lucide-react';
+import clsx from 'clsx';
 import toast from 'react-hot-toast';
 import ScoreGauge from '../components/ui/ScoreGauge';
 import YieldMeter from '../components/ui/YieldMeter';
@@ -13,6 +15,148 @@ import SalesHistoryChart from '../components/charts/SalesHistoryChart';
 import PriceComparisonChart from '../components/charts/PriceComparisonChart';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 import { formatCurrency, formatYield, propertyTypeIcon } from '../utils/formatters';
+
+const VERDICT_STYLE = {
+  STRONG_BUY: { bg: 'bg-emerald-500/15 border-emerald-500/30', text: 'text-emerald-300', label: 'Strong Buy' },
+  BUY:        { bg: 'bg-teal-500/15 border-teal-500/30',       text: 'text-teal-300',    label: 'Buy'        },
+  HOLD:       { bg: 'bg-amber-500/15 border-amber-500/30',     text: 'text-amber-300',   label: 'Hold'       },
+  AVOID:      { bg: 'bg-red-500/15 border-red-500/30',         text: 'text-red-300',     label: 'Avoid'      },
+};
+
+function AIInsightPanel({ propertyId, insight: initialInsight }) {
+  const [insight, setInsight] = useState(initialInsight || null);
+  const [loading, setLoading] = useState(false);
+
+  const runAnalysis = async () => {
+    setLoading(true);
+    try {
+      const r = await fetch(`/api/ai/analyse/property/${propertyId}`, { method: 'POST' });
+      if (!r.ok) { const e = await r.json(); throw new Error(e.detail || 'Analysis failed'); }
+      const data = await r.json();
+      setInsight({ ...data, positives: JSON.stringify(data.positives || []), risks: JSON.stringify(data.risks || []) });
+      toast.success('AI analysis complete');
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const positives = insight?.positives ? (() => { try { return JSON.parse(insight.positives); } catch { return []; } })() : [];
+  const risks     = insight?.risks     ? (() => { try { return JSON.parse(insight.risks);     } catch { return []; } })() : [];
+  const vs = insight?.verdict ? VERDICT_STYLE[insight.verdict] : null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.15 }}
+      className="bg-slate-900 border border-slate-800 rounded-2xl p-6"
+    >
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Brain size={16} className="text-violet-400" />
+          <h2 className="text-white font-semibold">AI Investment Analysis</h2>
+          {vs && (
+            <span className={clsx('text-xs font-bold px-2 py-0.5 rounded-full border', vs.bg, vs.text)}>
+              {vs.label}
+            </span>
+          )}
+        </div>
+        <button
+          onClick={runAnalysis}
+          disabled={loading}
+          className="flex items-center gap-1.5 text-xs bg-violet-600/20 hover:bg-violet-600/30 text-violet-300 border border-violet-500/30 rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
+        >
+          {loading ? <span className="animate-spin">⟳</span> : <Play size={11} />}
+          {insight ? 'Re-analyse' : 'Analyse with AI'}
+        </button>
+      </div>
+
+      {!insight && !loading && (
+        <p className="text-slate-600 text-sm py-4 text-center">
+          Click "Analyse with AI" to get a Claude-powered investment verdict for this property.
+        </p>
+      )}
+
+      {loading && (
+        <div className="flex items-center gap-2 text-slate-400 text-sm py-4 justify-center">
+          <span className="animate-spin text-violet-400">⟳</span> Analysing with Claude…
+        </div>
+      )}
+
+      {insight && !loading && (
+        <div className="space-y-4">
+          {/* Confidence */}
+          {insight.confidence != null && (
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              Confidence: <span className="text-slate-300">{Math.round(insight.confidence * 100)}%</span>
+              <div className="flex-1 bg-slate-800 rounded-full h-1.5 max-w-[120px]">
+                <div className={clsx('h-1.5 rounded-full', vs?.text?.replace('text-', 'bg-') || 'bg-slate-500')}
+                  style={{ width: `${Math.round(insight.confidence * 100)}%` }} />
+              </div>
+            </div>
+          )}
+
+          {/* Summary */}
+          {insight.summary && (
+            <p className="text-slate-300 text-sm leading-relaxed">{insight.summary}</p>
+          )}
+
+          {/* Location notes */}
+          {insight.location_notes && (
+            <div className="bg-slate-800/50 rounded-xl p-3">
+              <div className="flex items-center gap-1.5 text-xs text-slate-500 mb-1.5 font-medium uppercase tracking-wider">
+                <Lightbulb size={11} /> Location Notes
+              </div>
+              <p className="text-slate-400 text-xs leading-relaxed">{insight.location_notes}</p>
+            </div>
+          )}
+
+          {/* Positives & Risks */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {positives.length > 0 && (
+              <div>
+                <div className="flex items-center gap-1.5 text-xs text-emerald-400 mb-1.5 font-medium">
+                  <ThumbsUp size={11} /> Positives
+                </div>
+                <ul className="space-y-1">
+                  {positives.map((p, i) => (
+                    <li key={i} className="text-xs text-slate-400 flex gap-1.5">
+                      <span className="text-emerald-600 mt-0.5 shrink-0">✓</span> {p}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {risks.length > 0 && (
+              <div>
+                <div className="flex items-center gap-1.5 text-xs text-red-400 mb-1.5 font-medium">
+                  <ThumbsDown size={11} /> Risks
+                </div>
+                <ul className="space-y-1">
+                  {risks.map((r, i) => (
+                    <li key={i} className="text-xs text-slate-400 flex gap-1.5">
+                      <span className="text-red-600 mt-0.5 shrink-0">✗</span> {r}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          {insight.generated_at && (
+            <p className="text-slate-700 text-xs border-t border-slate-800 pt-2">
+              Analysed {new Date(insight.generated_at).toLocaleString('en-GB')}
+              {insight.tokens_used && ` · ${insight.tokens_used.toLocaleString()} tokens`}
+            </p>
+          )}
+        </div>
+      )}
+    </motion.div>
+  );
+}
 
 export default function PropertyDetail() {
   const { id } = useParams();
@@ -263,6 +407,9 @@ export default function PropertyDetail() {
           </div>
         </motion.div>
       </div>
+
+      {/* AI Analysis Panel */}
+      <AIInsightPanel propertyId={id} insight={property.ai_insight} />
 
       {/* 10-year history chart */}
       <motion.div

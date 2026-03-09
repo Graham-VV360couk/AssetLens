@@ -3,7 +3,7 @@ import {
   Plus, Play, Trash2, ToggleLeft, ToggleRight, Globe, RefreshCw,
   CheckCircle, XCircle, Clock, AlertCircle, Search, ChevronDown, ChevronUp,
   Layers, Link2, ArrowRight, Zap, Pencil, Save, X, FileText, HelpCircle,
-  Lightbulb, BookOpen
+  Lightbulb, BookOpen, Terminal
 } from 'lucide-react';
 import { scrapersApi } from '../services/api';
 import toast from 'react-hot-toast';
@@ -561,6 +561,71 @@ function StrategyLibraryPanel() {
   );
 }
 
+function RunLogPane({ sourceId, isRunning }) {
+  const [logs, setLogs] = useState([]);
+  const [open, setOpen] = useState(true);
+  const bottomRef = React.useRef(null);
+
+  useEffect(() => {
+    if (!sourceId) return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const data = await scrapersApi.getLogs(sourceId);
+        if (!cancelled) setLogs(data);
+      } catch { /* ignore */ }
+    };
+    poll();
+    if (!isRunning) return;
+    const timer = setInterval(poll, 2000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [sourceId, isRunning]);
+
+  useEffect(() => {
+    if (open && bottomRef.current) bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+  }, [logs, open]);
+
+  const levelColour = (level) => ({
+    error:   'text-red-400',
+    warning: 'text-amber-400',
+    info:    'text-slate-300',
+    debug:   'text-slate-600',
+  }[level] || 'text-slate-400');
+
+  if (logs.length === 0 && !isRunning) return null;
+
+  return (
+    <div className="mx-4 mb-2 rounded-xl border border-slate-800 bg-slate-950 overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+      >
+        <Terminal size={11} className={isRunning ? 'text-blue-400 animate-pulse' : 'text-slate-600'} />
+        <span className="font-medium">Run log</span>
+        {isRunning && <span className="text-blue-400 animate-pulse ml-1">● live</span>}
+        <span className="ml-auto text-slate-700">{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className="px-3 pb-3 max-h-52 overflow-y-auto font-mono text-xs space-y-0.5">
+          {logs.map((log, i) => (
+            <div key={i} className="flex gap-2 leading-relaxed">
+              <span className="text-slate-700 shrink-0 select-none">
+                {new Date(log.created_at).toLocaleTimeString('en-GB')}
+              </span>
+              <span className={clsx('shrink-0 uppercase w-12', levelColour(log.level))}>{log.level}</span>
+              <span className={levelColour(log.level)}>{log.message}</span>
+            </div>
+          ))}
+          {logs.length === 0 && (
+            <p className="text-slate-700 py-2">Waiting for logs…</p>
+          )}
+          <div ref={bottomRef} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 const EMPTY_FORM = { name: '', url: '', source_type: 'auction', max_pages: 5, notes: '', scrape_detail_pages: false };
 
 export default function Scrapers() {
@@ -910,6 +975,12 @@ export default function Scrapers() {
                     onSourceUpdated={updated => setSources(prev => prev.map(s => s.id === updated.id ? updated : s))}
                   />
                 )}
+
+                {/* Live run log */}
+                <RunLogPane
+                  sourceId={source.id}
+                  isRunning={running[source.id] || source.last_run_status === 'running'}
+                />
               </div>
             ))}
           </div>

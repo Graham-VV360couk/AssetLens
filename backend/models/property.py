@@ -55,6 +55,7 @@ class Property(Base, TimestampMixin):
     hmo_records = relationship('HMORegister', back_populates='property', cascade='all, delete-orphan')
     auctions = relationship('Auction', back_populates='property', cascade='all, delete-orphan')
     score = relationship('PropertyScore', back_populates='property', cascade='all, delete-orphan', uselist=False)
+    ai_insight = relationship('PropertyAIInsight', back_populates='property', cascade='all, delete-orphan', uselist=False)
 
     # Composite indexes for common queries
     __table_args__ = (

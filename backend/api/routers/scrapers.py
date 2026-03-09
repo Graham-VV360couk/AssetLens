@@ -3,6 +3,7 @@ import json
 import logging
 import re
 import time
+import uuid
 from datetime import datetime
 from typing import List, Optional
 from urllib.parse import urljoin, urlparse
@@ -18,10 +19,31 @@ from backend.api.dependencies import get_db
 from backend.models.property import Property
 from backend.models.auction import Auction
 from backend.models.scraper_source import ScraperSource, ScraperStrategyLibrary
+from backend.models.scraper_run_log import ScraperRunLog
 from backend.services.scoring_service import PropertyScoringService, save_score
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/api/scrapers', tags=['scrapers'])
+
+
+def _db_log(db: Session, source_id: int, run_id: str, level: str, message: str, run_type: str = 'scrape'):
+    """Write a log line to the DB. Commits immediately so it's visible during long runs."""
+    try:
+        entry = ScraperRunLog(
+            source_id=source_id,
+            run_id=run_id,
+            run_type=run_type,
+            level=level,
+            message=message[:2000],
+            created_at=datetime.utcnow(),
+        )
+        db.add(entry)
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
 
 HEADERS = {
     'User-Agent': 'AssetLens/1.0 (property investment research; contact@assetlens.co.uk)',
@@ -295,20 +317,19 @@ def _derive_pagination_pattern(urls: List[str]) -> Optional[dict]:
     if varying_idx is None:
         return None
 
-    # Build template path
+    # Build template path — preserve trailing slash style from original URLs
     template_parts = list(parts_list[0])
     template_parts[varying_idx] = '{page}'
     base = f"{parsed[0].scheme}://{parsed[0].netloc}"
-    template_path = '/' + '/'.join(template_parts) + '/'
+    has_trailing_slash = parsed[0].path.endswith('/')
+    template_path = '/' + '/'.join(template_parts) + ('/' if has_trailing_slash else '')
 
-    # Carry query string from the sample URLs (use first that has one, strip page-like params)
+    # Carry query string from the sample URLs
     query = parsed[0].query or ''
 
-    # Infer start page (extrapolate back from lowest sample page)
+    # Infer start page from samples
     nums = sorted(int(p[varying_idx]) for p in parts_list)
     step = nums[1] - nums[0]
-    start_page = max(1, nums[0] - step * (nums[0] // step - 1)) if step else 1
-    # Simple: assume start is 1 if lowest sample >= 2, else use lowest
     start_page = 1 if nums[0] >= 2 else nums[0]
 
     template_url = base + template_path
@@ -687,6 +708,69 @@ def _scrape_allsop_json(source_url: str, session: requests.Session, max_pages: i
     return all_listings
 
 
+def _scrape_apa(source_url: str, session: requests.Session, max_pages: int) -> list:
+    """Scrape agentspropertyauction.com using the ur_load_more WordPress AJAX plugin.
+
+    The site uses a 'Load More' button that POSTs to /wp-admin/admin-ajax.php.
+    The session cookie from the initial page load is required — requests.Session
+    handles this automatically.
+    """
+    parsed = urlparse(source_url)
+    base = f"{parsed.scheme}://{parsed.netloc}"
+    ajax_url = f"{base}/wp-admin/admin-ajax.php"
+    search_url = f"{base}/property-search/?submit=1"
+
+    # Initial page load — stores session cookies
+    time.sleep(RATE_LIMIT)
+    try:
+        resp = session.get(search_url, headers=HEADERS, timeout=30)
+        resp.raise_for_status()
+    except Exception as e:
+        logger.warning("APA initial page failed: %s", e)
+        return []
+
+    first_soup = BeautifulSoup(resp.text, 'html.parser')
+    all_listings = _extract_agents_property_auction(first_soup, base)
+    logger.info("APA page 1: %d listings", len(all_listings))
+
+    # Read pagination meta from the load-more button
+    btn = first_soup.select_one('.ur-load-more-link')
+    if not btn:
+        logger.info("APA: no load-more button found, returning page 1 only")
+        return all_listings
+
+    max_page = int(btn.get('data-max', 1))
+    pages_to_fetch = min(max_page, max_pages)
+    logger.info("APA: %d total pages, fetching up to %d", max_page, pages_to_fetch)
+
+    for page_num in range(2, pages_to_fetch + 1):
+        try:
+            time.sleep(RATE_LIMIT)
+            resp = session.post(ajax_url, data={
+                'action': 'ur_load_more',
+                'page_number': str(page_num),
+                'page_type': 'page',
+            }, headers={
+                **HEADERS,
+                'Referer': search_url,
+                'X-Requested-With': 'XMLHttpRequest',
+                'Content-Type': 'application/x-www-form-urlencoded',
+            }, timeout=30)
+            resp.raise_for_status()
+            page_soup = BeautifulSoup(resp.text, 'html.parser')
+            listings = _extract_agents_property_auction(page_soup, base)
+            if not listings:
+                logger.info("APA AJAX page %d: no listings, stopping", page_num)
+                break
+            all_listings.extend(listings)
+            logger.info("APA AJAX page %d: %d listings", page_num, len(listings))
+        except Exception as e:
+            logger.warning("APA AJAX page %d failed: %s", page_num, e)
+            break
+
+    return all_listings
+
+
 # Map domain fragments to site-specific extractors
 SITE_HANDLERS = {
     'acuitus.co.uk': _extract_acuitus,
@@ -696,6 +780,7 @@ SITE_HANDLERS = {
 # Sites with JSON APIs — bypasses HTML scraping entirely
 JSON_HANDLERS = {
     'allsop.co.uk': _scrape_allsop_json,
+    'agentspropertyauction.com': _scrape_apa,
 }
 
 
@@ -1021,6 +1106,7 @@ def _run_scraper(source_id: int):
     """Background task: scrape a source URL and save properties."""
     from backend.models.base import SessionLocal
     db = SessionLocal()
+    run_id = str(uuid.uuid4())
     try:
         source = db.query(ScraperSource).filter(ScraperSource.id == source_id).first()
         if not source:
@@ -1028,12 +1114,16 @@ def _run_scraper(source_id: int):
 
         source.last_run_status = 'running'
         source.last_run_at = datetime.utcnow()
+        source.last_run_id = run_id if hasattr(source, 'last_run_id') else None
         db.commit()
+
+        _db_log(db, source_id, run_id, 'info', f'Scrape started for {source.name}')
 
         if not _robots_allowed(source.url):
             source.last_run_status = 'error'
             source.last_error = 'Blocked by robots.txt'
             db.commit()
+            _db_log(db, source_id, run_id, 'error', 'Blocked by robots.txt')
             return
 
         session = requests.Session()
@@ -1054,7 +1144,9 @@ def _run_scraper(source_id: int):
 
         if json_handler:
             all_listings = json_handler(source.url, session, source.max_pages)
+            msg = f"Found {len(all_listings)} listings via API handler"
             logger.info("Source %s JSON handler: %d listings", source.name, len(all_listings))
+            _db_log(db, source_id, run_id, 'info', msg)
 
         elif strategy.get('all_results_url'):
             # User provided a single URL that returns all results
@@ -1173,12 +1265,15 @@ def _run_scraper(source_id: int):
         source.last_run_status = 'success'
         source.last_run_properties = new_count
         source.total_properties_found = (source.total_properties_found or 0) + new_count
-        source.last_error = first_save_error  # None if all saved OK, else first error seen
+        source.last_error = first_save_error
         db.commit()
+        msg = f"Scrape complete: {new_count} new properties saved (from {len(all_listings)} found)"
         logger.info("Scrape complete for %s: %d new properties", source.name, new_count)
+        _db_log(db, source_id, run_id, 'info', msg)
 
         # Auto-score all active properties after each scrape
         try:
+            _db_log(db, source_id, run_id, 'info', 'Running investment scoring…')
             scorer = PropertyScoringService(db)
             props = db.query(Property).filter(Property.status == 'active').all()
             for prop in props:
@@ -1189,11 +1284,14 @@ def _run_scraper(source_id: int):
                     logger.debug("Scoring failed for property %d: %s", prop.id, se)
             db.commit()
             logger.info("Auto-scoring complete: %d properties scored", len(props))
+            _db_log(db, source_id, run_id, 'info', f'Scoring complete: {len(props)} properties scored')
         except Exception as se:
             logger.warning("Auto-scoring failed: %s", se)
+            _db_log(db, source_id, run_id, 'warning', f'Scoring failed: {se}')
 
     except Exception as e:
         logger.error("Scraper error for source %s: %s", source_id, e)
+        _db_log(db, source_id, run_id, 'error', f'Scraper error: {e}')
         try:
             source = db.query(ScraperSource).filter(ScraperSource.id == source_id).first()
             if source:
@@ -1406,3 +1504,35 @@ def get_library(db: Session = Depends(get_db)):
     # Sort: most successful first, then alphabetical
     result.sort(key=lambda x: (-x['success_count'], x['name']))
     return result
+
+
+@router.get('/{source_id}/logs')
+def get_run_logs(source_id: int, run_id: Optional[str] = None, limit: int = 200, db: Session = Depends(get_db)):
+    """Return recent log entries for a source. Optionally filter to a specific run_id."""
+    q = db.query(ScraperRunLog).filter(ScraperRunLog.source_id == source_id)
+    if run_id:
+        q = q.filter(ScraperRunLog.run_id == run_id)
+    logs = q.order_by(ScraperRunLog.created_at.desc()).limit(limit).all()
+    return [
+        {
+            'id': l.id,
+            'run_id': l.run_id,
+            'run_type': l.run_type,
+            'level': l.level,
+            'message': l.message,
+            'created_at': l.created_at.isoformat(),
+        }
+        for l in reversed(logs)  # return chronological order
+    ]
+
+
+@router.get('/{source_id}/latest-run-id')
+def get_latest_run_id(source_id: int, db: Session = Depends(get_db)):
+    """Return the run_id of the most recent log entry for this source."""
+    latest = (
+        db.query(ScraperRunLog)
+        .filter(ScraperRunLog.source_id == source_id)
+        .order_by(ScraperRunLog.created_at.desc())
+        .first()
+    )
+    return {'run_id': latest.run_id if latest else None}

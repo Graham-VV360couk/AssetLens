@@ -231,6 +231,11 @@ export const scrapersApi = {
     const response = await apiClient.get('/api/scrapers/library');
     return response.data;
   },
+  getLogs: async (id, runId) => {
+    const url = runId ? `/api/scrapers/${id}/logs?run_id=${runId}` : `/api/scrapers/${id}/logs`;
+    const response = await apiClient.get(url);
+    return response.data;
+  },
 };
 
 // Export configured axios instance for custom requests

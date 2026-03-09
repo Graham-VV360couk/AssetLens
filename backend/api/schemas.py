@@ -54,6 +54,18 @@ class AuctionSchema(BaseModel):
     auction_house_url: Optional[str]
 
 
+class PropertyAIInsightSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    verdict: Optional[str]
+    confidence: Optional[float]
+    summary: Optional[str]
+    location_notes: Optional[str]
+    positives: Optional[str]   # JSON text
+    risks: Optional[str]       # JSON text
+    tokens_used: Optional[int]
+    generated_at: Optional[datetime]
+
+
 class PropertySummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
@@ -69,6 +81,7 @@ class PropertySummary(BaseModel):
     date_found: Optional[datetime]
     is_reviewed: Optional[bool]
     score: Optional[PropertyScoreSchema]
+    ai_insight: Optional[PropertyAIInsightSchema]
 
 
 class PropertyDetail(PropertySummary):
