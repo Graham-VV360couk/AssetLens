@@ -350,11 +350,29 @@ export default function PropertyDetail() {
   const navigate = useNavigate();
   const [property, setProperty] = useState(null);
   const [areaData, setAreaData] = useState(null);
+  const [areaStats, setAreaStats] = useState(null);
   const [nationalData, setNationalData] = useState(null);
   const [comparables, setComparables] = useState(null);
   const [priceDistribution, setPriceDistribution] = useState(null);
   const [loading, setLoading] = useState(true);
   const [reviewLoading, setReviewLoading] = useState(false);
+
+  const loadAreaData = (pc, pt, gp) => {
+    const enc = encodeURIComponent(pc);
+    Promise.allSettled([
+      fetch(`/api/areas/${enc}/trends`).then(r => r.ok ? r.json() : null),
+      fetch(`/api/areas/${enc}/stats`).then(r => r.ok ? r.json() : null),
+      fetch(`/api/areas/national/trends`).then(r => r.ok ? r.json() : null),
+      fetch(`/api/areas/${enc}/comparables?property_type=${encodeURIComponent(pt)}`).then(r => r.ok ? r.json() : null),
+      fetch(`/api/areas/${enc}/price-distribution?guide_price=${gp}`).then(r => r.ok ? r.json() : null),
+    ]).then(([trends, stats, national, comps, dist]) => {
+      if (trends.value) setAreaData(trends.value);
+      if (stats.value) setAreaStats(stats.value);
+      if (national.value) setNationalData(national.value);
+      if (comps.value) setComparables(comps.value);
+      if (dist.value) setPriceDistribution(dist.value);
+    });
+  };
 
   useEffect(() => {
     fetch(`/api/properties/${id}`)
@@ -362,21 +380,7 @@ export default function PropertyDetail() {
       .then(prop => {
         setProperty(prop);
         if (prop.postcode) {
-          const pc = encodeURIComponent(prop.postcode);
-          const pt = encodeURIComponent(prop.property_type || '');
-          const gp = prop.asking_price || '';
-
-          Promise.allSettled([
-            fetch(`/api/areas/${pc}/trends`).then(r => r.ok ? r.json() : null),
-            fetch(`/api/areas/national/trends`).then(r => r.ok ? r.json() : null),
-            fetch(`/api/areas/${pc}/comparables?property_type=${pt}`).then(r => r.ok ? r.json() : null),
-            fetch(`/api/areas/${pc}/price-distribution?guide_price=${gp}`).then(r => r.ok ? r.json() : null),
-          ]).then(([trends, national, comps, dist]) => {
-            if (trends.value) setAreaData(trends.value);
-            if (national.value) setNationalData(national.value);
-            if (comps.value) setComparables(comps.value);
-            if (dist.value) setPriceDistribution(dist.value);
-          });
+          loadAreaData(prop.postcode, prop.property_type || '', prop.asking_price || '');
         }
       })
       .catch(e => toast.error(e.message))
@@ -413,7 +417,20 @@ export default function PropertyDetail() {
   const score = property.score;
 
   return (
-    <div className="p-6 space-y-6 max-w-6xl mx-auto">
+    <div className="space-y-6 max-w-6xl mx-auto pb-10">
+      {/* Hero image */}
+      {property.image_url && (
+        <div className="h-64 w-full overflow-hidden bg-slate-900 rounded-b-2xl">
+          <img
+            src={property.image_url}
+            alt={property.address}
+            className="w-full h-full object-cover"
+            onError={e => { e.target.parentElement.style.display = 'none'; }}
+          />
+        </div>
+      )}
+
+      <div className="px-6 space-y-6">
       {/* Back + header */}
       <div className="flex items-start gap-4">
         <button
@@ -440,21 +457,7 @@ export default function PropertyDetail() {
               currentPostcode={property.postcode}
               onSaved={pc => {
                 setProperty(p => ({ ...p, postcode: pc }));
-                // Re-fetch area data now that we have a postcode
-                const enc = encodeURIComponent(pc);
-                const pt = encodeURIComponent(property.property_type || '');
-                const gp = property.asking_price || '';
-                Promise.allSettled([
-                  fetch(`/api/areas/${enc}/trends`).then(r => r.ok ? r.json() : null),
-                  fetch(`/api/areas/national/trends`).then(r => r.ok ? r.json() : null),
-                  fetch(`/api/areas/${enc}/comparables?property_type=${pt}`).then(r => r.ok ? r.json() : null),
-                  fetch(`/api/areas/${enc}/price-distribution?guide_price=${gp}`).then(r => r.ok ? r.json() : null),
-                ]).then(([trends, national, comps, dist]) => {
-                  if (trends.value) setAreaData(trends.value);
-                  if (national.value) setNationalData(national.value);
-                  if (comps.value) setComparables(comps.value);
-                  if (dist.value) setPriceDistribution(dist.value);
-                });
+                loadAreaData(pc, property.property_type || '', property.asking_price || '');
               }}
             />
             {property.town && <><span>·</span><span>{property.town}</span></>}
@@ -583,19 +586,37 @@ export default function PropertyDetail() {
           className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5"
         >
           <h2 className="text-white font-semibold">Area Statistics</h2>
-          {score?.area_avg_price && (
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-slate-800/50 rounded-xl p-3">
-                <div className="text-slate-500 text-xs mb-1">Area Avg Price</div>
-                <div className="text-white font-bold text-sm">{formatCurrency(score.area_avg_price)}</div>
+          {(areaStats || score?.area_avg_price) ? (
+            <div className="space-y-3">
+              <div className="text-slate-500 text-xs font-medium uppercase tracking-wider">
+                {areaData?.district || property.postcode?.split(' ')[0]} · Land Registry
               </div>
-              <div className="bg-slate-800/50 rounded-xl p-3">
-                <div className="text-slate-500 text-xs mb-1">10yr Growth</div>
-                <div className={`font-bold text-sm ${score.area_growth_10yr_pct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {score.area_growth_10yr_pct != null ? `${(score.area_growth_10yr_pct * 100).toFixed(1)}%` : '—'}
-                </div>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { label: 'Avg (1yr)',  value: areaStats?.avg_price_1yr  || score?.area_avg_price, fmt: true },
+                  { label: 'Avg (5yr)',  value: areaStats?.avg_price_5yr,  fmt: true },
+                  { label: '5yr Growth', value: areaStats?.growth_pct_5yr  || score?.area_growth_10yr_pct,
+                    render: v => <span className={v >= 0 ? 'text-emerald-400' : 'text-red-400'}>{v >= 0 ? '+' : ''}{(v * 100).toFixed(1)}%</span> },
+                  { label: '10yr Growth',value: areaStats?.growth_pct_10yr,
+                    render: v => <span className={v >= 0 ? 'text-emerald-400' : 'text-red-400'}>{v >= 0 ? '+' : ''}{(v * 100).toFixed(1)}%</span> },
+                  { label: 'Sales (1yr)',value: areaStats?.transaction_count_1yr,
+                    render: v => <span className="text-slate-200">{v?.toLocaleString()}</span> },
+                  { label: 'Sales (10yr)',value: areaStats?.transaction_count_10yr,
+                    render: v => <span className="text-slate-200">{v?.toLocaleString()}</span> },
+                ].map(({ label, value, fmt, render }) => value != null && (
+                  <div key={label} className="bg-slate-800/50 rounded-xl p-2.5">
+                    <div className="text-slate-500 text-[10px] mb-0.5">{label}</div>
+                    <div className="font-bold text-sm">
+                      {render ? render(value) : fmt ? formatCurrency(value, true) : value}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
+          ) : property.postcode ? (
+            <p className="text-slate-600 text-sm">Loading area data…</p>
+          ) : (
+            <p className="text-slate-600 text-sm">Add a postcode to see area statistics.</p>
           )}
 
           {/* Sources */}
@@ -708,6 +729,7 @@ export default function PropertyDetail() {
           />
         </motion.div>
       </div>
+      </div> {/* end px-6 */}
     </div>
   );
 }

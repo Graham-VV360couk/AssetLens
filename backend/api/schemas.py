@@ -135,4 +135,5 @@ class DashboardStats(BaseModel):
     avg_yield: Optional[float]
     by_price_band: dict
     by_property_type: dict
+    score_distribution: List[dict] = []
     recent_high_value: List[PropertySummary] = []

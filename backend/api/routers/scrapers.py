@@ -9,6 +9,32 @@ from typing import List, Optional
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
+# ---------------------------------------------------------------------------
+# Live scrape progress — updated by the background pipeline, read by /status
+# ---------------------------------------------------------------------------
+_progress: dict = {
+    'running': False,
+    'source_name': None,
+    'run_id': None,
+    'started_at': None,
+    'updated_at': None,
+    'stage': None,
+    'counts': {
+        'scraped': 0, 'new': 0, 'merged': 0,
+        'scored': 0,
+        'ai_total': 0, 'ai_done': 0,
+        'pd_total': 0, 'pd_done': 0,
+    },
+}
+
+
+def _prog(stage: str, **counts):
+    """Update the global progress dict."""
+    _progress['stage'] = stage
+    _progress['updated_at'] = datetime.utcnow().isoformat()
+    for k, v in counts.items():
+        _progress['counts'][k] = v
+
 import requests
 from bs4 import BeautifulSoup
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -29,6 +55,12 @@ from backend.services.ai_analysis_service import analyse_property
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/api/scrapers', tags=['scrapers'])
+
+
+@router.get('/status')
+def scrape_status():
+    """Return live progress of the current (or last) scrape pipeline."""
+    return _progress
 
 
 def _db_log(db: Session, source_id: int, run_id: str, level: str, message: str, run_type: str = 'scrape'):
@@ -418,6 +450,23 @@ def _scrape_page(url: str, session: requests.Session) -> Optional[BeautifulSoup]
         return None
 
 
+def _extract_image(soup, base_url: str) -> Optional[str]:
+    """Extract the best property image URL from a BeautifulSoup page/card."""
+    selectors = [
+        'img.property-image', 'img.lot-image', 'img[class*="property"]',
+        'img[class*="lot-img"]', '.property-photo img', '.lot-photo img',
+        '.gallery img', '.carousel img', 'img[src*="property"]',
+        'img[src*="lot"]', 'img[data-src]', 'img[src]',
+    ]
+    for sel in selectors:
+        el = soup.select_one(sel)
+        if el:
+            src = el.get('src') or el.get('data-src') or el.get('data-lazy-src') or ''
+            if src and not src.startswith('data:') and len(src) > 10:
+                return urljoin(base_url, src)
+    return None
+
+
 def _extract_acuitus(soup: BeautifulSoup, base_url: str) -> list:
     """Site-specific extractor for acuitus.co.uk."""
     listings = []
@@ -451,6 +500,7 @@ def _extract_acuitus(soup: BeautifulSoup, base_url: str) -> list:
                 'guide_price': price,
                 'lot_number': lot,
                 'source_url': source_url,
+                'image_url': _extract_image(card, base_url),
             })
         except Exception:
             continue
@@ -481,6 +531,7 @@ def _extract_agents_property_auction(soup: BeautifulSoup, base_url: str) -> list
                 'guide_price': price,
                 'lot_number': '',
                 'source_url': source_url,
+                'image_url': _extract_image(card, base_url),
             })
         except Exception:
             continue
@@ -580,6 +631,11 @@ def _scrape_detail_acuitus(url: str, session: requests.Session) -> dict:
         legal_el = soup.select_one('a[href*="legal"], a[href*="pack"]')
         if legal_el:
             extra['legal_pack_url'] = urljoin(url, legal_el['href'])[:1000]
+        img_el = soup.select_one('.lot-image img, .property-image img, .gallery img:first-child, img[class*="lot"], img[class*="property"]')
+        if img_el:
+            src = img_el.get('src') or img_el.get('data-src') or ''
+            if src and not src.startswith('data:'):
+                extra['image_url'] = urljoin(url, src)
     except Exception as e:
         logger.debug("Acuitus detail page %s: %s", url, e)
     return extra
@@ -620,6 +676,11 @@ def _scrape_detail_apa(url: str, session: requests.Session) -> dict:
         ref_el = soup.select_one('[class*="lot-ref"], [class*="reference"], [class*="lot-num"]')
         if ref_el:
             extra['lot_number'] = ref_el.get_text(strip=True)[:50]
+        img_el = soup.select_one('.property-image img, .wp-post-image, .gallery img:first-child, .entry-content img:first-child')
+        if img_el:
+            src = img_el.get('src') or img_el.get('data-src') or ''
+            if src and not src.startswith('data:'):
+                extra['image_url'] = urljoin(url, src)
     except Exception as e:
         logger.debug("APA detail page %s: %s", url, e)
     return extra
@@ -1132,6 +1193,15 @@ def _run_scraper(source_id: int):
         source.last_run_id = run_id if hasattr(source, 'last_run_id') else None
         db.commit()
 
+        # Reset live progress
+        _progress.update({
+            'running': True, 'source_name': source.name, 'run_id': run_id,
+            'started_at': datetime.utcnow().isoformat(), 'updated_at': datetime.utcnow().isoformat(),
+            'stage': 'retrieving',
+            'counts': {'scraped': 0, 'new': 0, 'merged': 0, 'scored': 0,
+                       'ai_total': 0, 'ai_done': 0, 'pd_total': 0, 'pd_done': 0},
+        })
+
         _db_log(db, source_id, run_id, 'info', f'Scrape started for {source.name}')
 
         if not _robots_allowed(source.url):
@@ -1266,6 +1336,8 @@ def _run_scraper(source_id: int):
                         source_id=listing.get('lot_number'),
                         source_url=listing.get('source_url'),
                     )
+                    if not existing.image_url and listing.get('image_url'):
+                        existing.image_url = listing['image_url']
                     # Update auction record if same auctioneer has new guide price
                     if source.source_type == 'auction' and listing.get('guide_price'):
                         existing_auction = (
@@ -1350,6 +1422,7 @@ def _run_scraper(source_id: int):
         msg = (f"Scrape complete: {new_count} new, {merged_count} merged "
                f"(from {len(all_listings)} found)")
         logger.info("Scrape complete for %s: %d new, %d merged", source.name, new_count, merged_count)
+        _prog('scoring', scraped=len(all_listings), new=new_count, merged=merged_count)
         _db_log(db, source_id, run_id, 'info', msg)
 
         # --- Step 1: Score new/unscored properties only ---
@@ -1385,6 +1458,7 @@ def _run_scraper(source_id: int):
             _db_log(db, source_id, run_id, 'info',
                     f'Scoring complete: {len(props_to_score)} properties '
                     f'({new_count} new, {len(unscored_ids)} previously unscored)')
+            _prog('ai_analysis', scored=len(props_to_score))
         except Exception as se:
             logger.warning("Auto-scoring failed: %s", se)
             _db_log(db, source_id, run_id, 'warning', f'Scoring failed: {se}')
@@ -1409,12 +1483,14 @@ def _run_scraper(source_id: int):
             if ai_candidates:
                 _db_log(db, source_id, run_id, 'info',
                         f'AI: analysing {len(ai_candidates)} new properties…')
+            _prog('ai_analysis', ai_total=len(ai_candidates), ai_done=0)
             ai_count = 0
             for prop in ai_candidates:
                 try:
                     analyse_property(prop.id, db)
                     ai_analysed_ids.add(prop.id)
                     ai_count += 1
+                    _prog('ai_analysis', ai_done=ai_count)
                 except Exception as ae:
                     logger.debug("AI analysis failed for property %d: %s", prop.id, ae)
             if ai_count:
@@ -1448,6 +1524,7 @@ def _run_scraper(source_id: int):
             if enrich_candidates:
                 _db_log(db, source_id, run_id, 'info',
                         f'PropertyData: enriching {len(enrich_candidates)} high-performing new properties…')
+            _prog('pd_enrichment', pd_total=len(enrich_candidates), pd_done=0)
             enriched_count = 0
             for prop, score in enrich_candidates:
                 try:
@@ -1456,6 +1533,7 @@ def _run_scraper(source_id: int):
                         result = scorer.score_property(prop, existing_score=score)
                         save_score(db, prop, result)
                         enriched_count += 1
+                        _prog('pd_enrichment', pd_done=enriched_count)
                 except Exception as pe:
                     logger.debug("PD enrichment failed for property %d: %s", prop.id, pe)
             if enriched_count:
@@ -1464,10 +1542,15 @@ def _run_scraper(source_id: int):
                         f'PropertyData enrichment complete: {enriched_count} properties enriched')
         except Exception as pe:
             logger.warning("PropertyData enrichment step failed: %s", pe)
+        finally:
+            _progress['running'] = False
+            _prog('done')
 
     except Exception as e:
         logger.error("Scraper error for source %s: %s", source_id, e)
         _db_log(db, source_id, run_id, 'error', f'Scraper error: {e}')
+        _progress['running'] = False
+        _prog('error')
         try:
             source = db.query(ScraperSource).filter(ScraperSource.id == source_id).first()
             if source:

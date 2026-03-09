@@ -1,6 +1,6 @@
 """Dashboard statistics endpoint."""
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func
+from sqlalchemy import func, case
 from sqlalchemy.orm import Session, joinedload
 
 from backend.api.dependencies import get_db
@@ -11,6 +11,16 @@ from backend.models.property_ai_insight import PropertyAIInsight
 router = APIRouter(prefix='/api/dashboard', tags=['dashboard'])
 
 HIGH_VALUE_THRESHOLD = 60
+
+# Score bands for distribution chart
+_SCORE_BANDS = [
+    (0,  20,  '0–20'),
+    (20, 40,  '20–40'),
+    (40, 60,  '40–60'),
+    (60, 75,  '60–75'),
+    (75, 90,  '75–90'),
+    (90, 101, '90+'),
+]
 
 
 @router.get('/stats', response_model=DashboardStats)
@@ -48,6 +58,15 @@ def get_dashboard_stats(
     )
     by_property_type = {r[0] or 'unknown': r[1] for r in type_rows}
 
+    # Score distribution — count properties in each band
+    score_distribution = []
+    for lo, hi, label in _SCORE_BANDS:
+        count = db.query(func.count(PropertyScore.id)).filter(
+            PropertyScore.investment_score >= lo,
+            PropertyScore.investment_score < hi,
+        ).scalar() or 0
+        score_distribution.append({'label': label, 'count': count, 'from': lo, 'to': hi})
+
     # All active properties scoring >= 60, sorted by score descending
     high_value_props = (
         db.query(Property)
@@ -73,5 +92,6 @@ def get_dashboard_stats(
         avg_yield=float(agg.avg_yield) if agg and agg.avg_yield else None,
         by_price_band=by_price_band,
         by_property_type=by_property_type,
+        score_distribution=score_distribution,
         recent_high_value=[PropertySummary.model_validate(p) for p in high_value_props],
     )

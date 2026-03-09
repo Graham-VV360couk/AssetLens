@@ -264,3 +264,69 @@ def fix_missing_postcodes(
         'fixed': fixed,
         'unresolved_ids': failed,
     }
+
+
+@router.post('/fetch-images')
+def fetch_images_for_existing(limit: int = 30, db: Session = Depends(get_db)):
+    """Backfill image_url for properties that have a source_url but no image."""
+    import time, requests as _req
+    from bs4 import BeautifulSoup
+    from urllib.parse import urljoin
+
+    props = (
+        db.query(Property)
+        .join(Property.sources)
+        .filter(
+            (Property.image_url == None) | (Property.image_url == ''),
+            Property.status == 'active',
+            PropertySource.source_url != None,
+            PropertySource.source_url != '',
+        )
+        .limit(limit)
+        .all()
+    )
+
+    headers = {'User-Agent': 'Mozilla/5.0 (compatible; AssetLens/1.0)'}
+    updated = []
+    failed = []
+
+    for prop in props:
+        source_url = next((s.source_url for s in prop.sources if s.source_url), None)
+        if not source_url:
+            continue
+        try:
+            time.sleep(1.5)
+            r = _req.get(source_url, headers=headers, timeout=20)
+            if not r.ok:
+                failed.append(prop.id)
+                continue
+            soup = BeautifulSoup(r.text, 'html.parser')
+            selectors = [
+                'img.property-image', 'img.lot-image', 'img[class*="property"]',
+                '.gallery img', '.carousel img:first-child',
+                'img[src*="property"]', 'img[src*="lot"]',
+                'img[data-src]', 'img[src]',
+            ]
+            img_url = None
+            for sel in selectors:
+                el = soup.select_one(sel)
+                if el:
+                    src = el.get('src') or el.get('data-src') or ''
+                    if src and not src.startswith('data:') and len(src) > 10:
+                        img_url = urljoin(source_url, src)
+                        break
+            if img_url:
+                prop.image_url = img_url
+                db.commit()
+                updated.append({'id': prop.id, 'image_url': img_url})
+            else:
+                failed.append(prop.id)
+        except Exception as e:
+            logger.warning("fetch_images: property %d failed: %s", prop.id, e)
+            failed.append(prop.id)
+
+    return {
+        'message': f'Updated {len(updated)} images, {len(failed)} failed',
+        'updated': updated,
+        'failed_ids': failed,
+    }
