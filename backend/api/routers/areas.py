@@ -99,10 +99,30 @@ def get_national_trends(db: Session = Depends(get_db)):
 @router.get('/{postcode}/stats', response_model=AreaStats)
 def get_area_stats(postcode: str, db: Session = Depends(get_db)):
     district = postcode.split(' ')[0].upper() if ' ' in postcode else postcode.upper()[:4]
-    stats = _get_area_stats(db, district)
-    if not stats.get('avg_price_1yr') and not stats.get('avg_price_10yr'):
+    try:
+        stats = _get_area_stats(db, district)
+    except Exception as e:
+        logger.error("Error computing area stats for %s: %s", district, e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to compute area statistics: {e}")
+
+    # LR data lags 12-18 months; use the most recent period that has data
+    recent_avg = (
+        stats.get('avg_price_1yr') or
+        stats.get('avg_price_3yr') or
+        stats.get('avg_price_5yr') or
+        stats.get('avg_price_10yr')
+    )
+    if not recent_avg:
         raise HTTPException(status_code=404, detail=f"No sales data found for area {district}")
-    return AreaStats(**stats)
+
+    # Expose the most recent available average as the primary price reference
+    stats['avg_price_1yr'] = recent_avg
+
+    try:
+        return AreaStats(**{k: v for k, v in stats.items() if k in AreaStats.model_fields})
+    except Exception as e:
+        logger.error("AreaStats validation error for %s: %s | stats=%s", district, e, stats, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Area stats serialisation error: {e}")
 
 
 @router.get('/{postcode}/trends')
