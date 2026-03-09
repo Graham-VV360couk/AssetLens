@@ -1,5 +1,6 @@
 """AI property analysis endpoints."""
 import logging
+import time
 from typing import Optional, List
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
@@ -41,36 +42,74 @@ def analyse_one(property_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Analysis failed: {e}")
 
 
-def _run_batch(limit: int):
+def _run_batch(limit: int, min_score: float = 60.0):
+    """Background task: analyse up to `limit` unanalysed properties in score order.
+
+    Calls are paced by AI_CALL_DELAY (default 2s) via the service layer.
+    Stops early if it receives consecutive 429/rate-limit errors.
+    """
     from backend.models.base import SessionLocal
+    from backend.models.property import PropertyScore
     db = SessionLocal()
+    consecutive_errors = 0
+    analysed = 0
     try:
-        # Get properties without an AI insight, ordered by score desc
         analysed_ids = db.query(PropertyAIInsight.property_id).subquery()
         props = (
             db.query(Property)
-            .filter(Property.status == 'active')
-            .filter(Property.id.notin_(analysed_ids))
-            .join(Property.score, isouter=True)
-            .order_by(Property.score.has() and Property.score.investment_score.desc())
+            .join(PropertyScore, PropertyScore.property_id == Property.id)
+            .filter(
+                Property.status == 'active',
+                PropertyScore.investment_score >= min_score,
+                Property.id.notin_(analysed_ids),
+            )
+            .order_by(PropertyScore.investment_score.desc())
             .limit(limit)
             .all()
         )
-        logger.info("AI batch: analysing %d properties", len(props))
+        logger.info("AI batch: analysing %d properties (min_score=%.0f)", len(props), min_score)
         for prop in props:
             try:
-                analyse_property(prop.id, db)
+                # _rate_limit_delay=False: batch manages its own pacing via sleep below
+                analyse_property(prop.id, db, _rate_limit_delay=False)
+                analysed += 1
+                consecutive_errors = 0
+                # Pace between calls — prevents 429 on lower API tiers
+                from backend.services.ai_analysis_service import AI_CALL_DELAY
+                if AI_CALL_DELAY > 0:
+                    time.sleep(AI_CALL_DELAY)
             except Exception as e:
+                consecutive_errors += 1
                 logger.warning("AI batch: property %d failed: %s", prop.id, e)
+                if consecutive_errors >= 3:
+                    logger.error("AI batch: 3 consecutive errors — stopping to avoid further throttling")
+                    break
+                # Back off on rate limit errors
+                if 'rate' in str(e).lower() or '429' in str(e):
+                    logger.warning("AI batch: rate limit hit — sleeping 60s")
+                    time.sleep(60)
+        logger.info("AI batch complete: %d analysed", analysed)
     finally:
         db.close()
 
 
 @router.post('/analyse/batch')
-def analyse_batch(background_tasks: BackgroundTasks, limit: int = 50):
-    """Queue background AI analysis for up to `limit` unanalysed properties."""
-    background_tasks.add_task(_run_batch, limit)
-    return {"message": f"AI batch analysis started for up to {limit} properties"}
+def analyse_batch(
+    background_tasks: BackgroundTasks,
+    limit: int = 20,
+    min_score: float = 60.0,
+):
+    """Queue background AI analysis for up to `limit` unanalysed properties.
+
+    Properties are processed highest-score-first.
+    Default limit reduced to 20 to stay within API rate limits.
+    Increase AI_CALL_DELAY env var if you hit throttling (default: 2s between calls).
+    """
+    background_tasks.add_task(_run_batch, limit, min_score)
+    return {
+        "message": f"AI batch started: up to {limit} properties (score ≥ {min_score:.0f})",
+        "estimated_duration_seconds": limit * 3,
+    }
 
 
 @router.get('/insights/{property_id}', response_model=InsightResponse)

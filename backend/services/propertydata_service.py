@@ -9,6 +9,7 @@ in place of the statistical fallbacks.
 """
 import logging
 import os
+import time
 from datetime import datetime
 from typing import Optional
 
@@ -21,6 +22,8 @@ logger = logging.getLogger(__name__)
 
 _API_KEY = os.getenv("PROPERTYDATA_API_KEY", "")
 _BASE = "https://api.propertydata.co.uk"
+# Delay between individual endpoint calls within one property enrichment (3 calls)
+_PD_CALL_DELAY = float(os.getenv("PD_CALL_DELAY", "0.5"))
 
 # Map our property types to PropertyData codes
 _TYPE_MAP = {
@@ -71,12 +74,16 @@ class PropertyDataService:
             score.pd_avm_lower = avm.get("range_lower")
             score.pd_avm_upper = avm.get("range_upper")
             success = True
+        if _PD_CALL_DELAY > 0:
+            time.sleep(_PD_CALL_DELAY)
 
         # --- Rental estimate ---
         rental = self._rental(postcode, pd_type, beds)
         if rental:
             score.pd_rental_estimate = rental.get("rental_estimate")
             success = True
+        if _PD_CALL_DELAY > 0:
+            time.sleep(_PD_CALL_DELAY)
 
         # --- Flood risk ---
         flood = self._flood_risk(postcode)
@@ -97,49 +104,38 @@ class PropertyDataService:
 
         return success
 
-    def _avm(self, postcode: str, pd_type: str, beds: int) -> Optional[dict]:
-        try:
-            r = self.client.get(
-                f"{_BASE}/avm",
-                params={"key": self.api_key, "postcode": postcode,
-                        "property_type": pd_type, "bedrooms": beds},
-            )
-            r.raise_for_status()
-            body = r.json()
-            if body.get("status") == "success":
-                return body.get("data", {})
-        except Exception as exc:
-            logger.warning("PropertyData AVM failed for %s: %s", postcode, exc)
+    def _call(self, endpoint: str, params: dict) -> Optional[dict]:
+        """Make one PropertyData API call with 429 back-off."""
+        for attempt in range(3):
+            try:
+                r = self.client.get(f"{_BASE}/{endpoint}", params=params)
+                if r.status_code == 429:
+                    wait = 30 * (attempt + 1)
+                    logger.warning("PropertyData 429 on /%s — waiting %ds", endpoint, wait)
+                    time.sleep(wait)
+                    continue
+                r.raise_for_status()
+                body = r.json()
+                if body.get("status") == "success":
+                    return body.get("data", {})
+                logger.debug("PropertyData /%s non-success: %s", endpoint, body.get("message"))
+                return None
+            except Exception as exc:
+                logger.warning("PropertyData /%s failed (attempt %d): %s", endpoint, attempt + 1, exc)
+                if attempt < 2:
+                    time.sleep(5)
         return None
+
+    def _avm(self, postcode: str, pd_type: str, beds: int) -> Optional[dict]:
+        return self._call("avm", {"key": self.api_key, "postcode": postcode,
+                                  "property_type": pd_type, "bedrooms": beds})
 
     def _rental(self, postcode: str, pd_type: str, beds: int) -> Optional[dict]:
-        try:
-            r = self.client.get(
-                f"{_BASE}/rental-valuation",
-                params={"key": self.api_key, "postcode": postcode,
-                        "property_type": pd_type, "bedrooms": beds},
-            )
-            r.raise_for_status()
-            body = r.json()
-            if body.get("status") == "success":
-                return body.get("data", {})
-        except Exception as exc:
-            logger.warning("PropertyData rental failed for %s: %s", postcode, exc)
-        return None
+        return self._call("rental-valuation", {"key": self.api_key, "postcode": postcode,
+                                               "property_type": pd_type, "bedrooms": beds})
 
     def _flood_risk(self, postcode: str) -> Optional[dict]:
-        try:
-            r = self.client.get(
-                f"{_BASE}/flood-risk",
-                params={"key": self.api_key, "postcode": postcode},
-            )
-            r.raise_for_status()
-            body = r.json()
-            if body.get("status") == "success":
-                return body.get("data", {})
-        except Exception as exc:
-            logger.warning("PropertyData flood risk failed for %s: %s", postcode, exc)
-        return None
+        return self._call("flood-risk", {"key": self.api_key, "postcode": postcode})
 
     def close(self):
         self.client.close()

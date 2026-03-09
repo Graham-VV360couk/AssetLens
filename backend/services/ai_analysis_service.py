@@ -2,6 +2,7 @@
 import json
 import logging
 import os
+import time
 from datetime import datetime
 
 from sqlalchemy.orm import Session
@@ -13,8 +14,29 @@ logger = logging.getLogger(__name__)
 
 ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
 MODEL = 'claude-sonnet-4-6'
+# Minimum seconds between API calls — prevents rate-limit (429) errors.
+# Increase this if you hit throttling. At Anthropic Tier 1 (5 RPM) set to 13.
+# At Tier 2 (50 RPM) set to 1.5. At Tier 3+ (1000 RPM) set to 0.
+AI_CALL_DELAY = float(os.getenv('AI_CALL_DELAY', '2.0'))
 
 VERDICT_OPTIONS = ['STRONG_BUY', 'BUY', 'HOLD', 'AVOID']
+
+# Module-level client — created once, reused across all calls.
+# max_retries=4 with exponential backoff handles transient 429s automatically.
+_client = None
+
+def _get_client():
+    global _client
+    if _client is None:
+        try:
+            import anthropic
+            _client = anthropic.Anthropic(
+                api_key=ANTHROPIC_API_KEY,
+                max_retries=4,
+            )
+        except ImportError:
+            raise ValueError("anthropic SDK not installed — run: pip install anthropic")
+    return _client
 
 
 def _build_prompt(prop: Property) -> str:
@@ -59,15 +81,13 @@ Base your verdict on:
 Respond with JSON only, no other text."""
 
 
-def analyse_property(property_id: int, db: Session) -> dict:
-    """Run Claude analysis on one property and store the result. Returns the insight dict."""
+def analyse_property(property_id: int, db: Session, _rate_limit_delay: bool = True) -> dict:
+    """Run Claude analysis on one property and store the result. Returns the insight dict.
+
+    _rate_limit_delay: set False only when caller is already managing pacing (e.g. batch loop).
+    """
     if not ANTHROPIC_API_KEY:
         raise ValueError("ANTHROPIC_API_KEY not set — add it to the backend environment variables")
-
-    try:
-        import anthropic
-    except ImportError:
-        raise ValueError("anthropic SDK not installed — run: pip install anthropic")
 
     prop = db.query(Property).filter(Property.id == property_id).first()
     if not prop:
@@ -75,12 +95,22 @@ def analyse_property(property_id: int, db: Session) -> dict:
 
     prompt = _build_prompt(prop)
 
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-    response = client.messages.create(
-        model=MODEL,
-        max_tokens=800,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    # Enforce minimum inter-call delay before hitting the API
+    if _rate_limit_delay and AI_CALL_DELAY > 0:
+        time.sleep(AI_CALL_DELAY)
+
+    try:
+        import anthropic as _anthropic
+        client = _get_client()
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=800,
+            messages=[{"role": "user", "content": prompt}],
+        )
+    except Exception as exc:
+        # Surface the error clearly so callers can decide whether to retry
+        logger.error("Claude API error for property %d: %s", property_id, exc)
+        raise
 
     raw = response.content[0].text.strip()
     tokens_used = response.usage.input_tokens + response.usage.output_tokens
