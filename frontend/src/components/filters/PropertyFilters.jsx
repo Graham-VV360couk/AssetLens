@@ -1,9 +1,7 @@
-import React from 'react';
-import { Search, SlidersHorizontal, X } from 'lucide-react';
-import clsx from 'clsx';
+import React, { useEffect, useState } from 'react';
+import { Search, X } from 'lucide-react';
 
 const TYPES = ['', 'detached', 'semi-detached', 'terraced', 'flat'];
-const BANDS = ['', 'brilliant', 'good', 'fair', 'bad'];
 const SORTS = [
   { value: 'investment_score', label: 'Score' },
   { value: 'asking_price', label: 'Price' },
@@ -12,13 +10,21 @@ const SORTS = [
 ];
 
 export default function PropertyFilters({ filters, onChange, onReset }) {
+  const [sources, setSources] = useState([]);
   const handleChange = (key, value) => onChange({ ...filters, [key]: value || undefined, page: 1 });
+
+  useEffect(() => {
+    fetch('/api/scrapers')
+      .then(r => r.json())
+      .then(d => setSources(d))
+      .catch(() => {});
+  }, []);
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
         {/* Search by postcode */}
-        <div className="relative flex-1">
+        <div className="relative flex-1 min-w-[160px]">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
           <input
             type="text"
@@ -29,6 +35,18 @@ export default function PropertyFilters({ filters, onChange, onReset }) {
           />
         </div>
 
+        {/* Source */}
+        <select
+          value={filters.source || ''}
+          onChange={e => handleChange('source', e.target.value)}
+          className="bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
+        >
+          <option value="">All Sources</option>
+          {sources.map(s => (
+            <option key={s.id} value={s.name}>{s.name}</option>
+          ))}
+        </select>
+
         {/* Property type */}
         <select
           value={filters.property_type || ''}
@@ -38,18 +56,6 @@ export default function PropertyFilters({ filters, onChange, onReset }) {
           <option value="">All Types</option>
           {TYPES.filter(Boolean).map(t => (
             <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
-          ))}
-        </select>
-
-        {/* Price band */}
-        <select
-          value={filters.price_band || ''}
-          onChange={e => handleChange('price_band', e.target.value)}
-          className="bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
-        >
-          <option value="">All Bands</option>
-          {BANDS.filter(Boolean).map(b => (
-            <option key={b} value={b}>{b.charAt(0).toUpperCase() + b.slice(1)}</option>
           ))}
         </select>
 
@@ -72,7 +78,7 @@ export default function PropertyFilters({ filters, onChange, onReset }) {
       </div>
 
       {/* Range filters */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-2">
           <span className="text-slate-500 text-xs whitespace-nowrap">Min Score</span>
           <input

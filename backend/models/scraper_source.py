@@ -19,7 +19,9 @@ class ScraperSource(Base, TimestampMixin):
     # Run tracking
     last_run_at = Column(DateTime)
     last_run_status = Column(String(20))  # success, error, running, pending
-    last_run_properties = Column(Integer, default=0)
+    last_run_properties = Column(Integer, default=0)  # total found (new + merged) this run
+    last_run_new = Column(Integer, default=0)          # new properties added this run
+    last_run_merged = Column(Integer, default=0)       # existing properties updated this run
     last_error = Column(Text)
     total_properties_found = Column(Integer, default=0)
 

@@ -31,6 +31,11 @@ def _build_query(db: Session, filters: PropertyFilters):
         .options(joinedload(Property.score), joinedload(Property.ai_insight))
     )
 
+    if filters.source:
+        q = q.join(PropertySource, Property.id == PropertySource.property_id).filter(
+            PropertySource.source_name == filters.source
+        )
+
     if filters.status:
         q = q.filter(Property.status == filters.status)
     if filters.postcode:

@@ -41,6 +41,7 @@ class PropertyFilters:
         min_score: Optional[float] = Query(None, ge=0, le=100),
         min_yield: Optional[float] = Query(None, ge=0),
         price_band: Optional[str] = Query(None, description="brilliant|good|fair|bad"),
+        source: Optional[str] = Query(None, description="Filter by scraper source name"),
         status: Optional[str] = Query('active'),
         is_reviewed: Optional[bool] = Query(None),
         sort_by: str = Query('investment_score', description="investment_score|asking_price|date_found|yield"),
@@ -59,6 +60,7 @@ class PropertyFilters:
         self.min_score = min_score
         self.min_yield = min_yield
         self.price_band = price_band
+        self.source = source
         self.status = status
         self.is_reviewed = is_reviewed
         self.sort_by = sort_by

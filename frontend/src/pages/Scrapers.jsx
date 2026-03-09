@@ -21,7 +21,7 @@ function StatusBadge({ status }) {
   const map = {
     success: { icon: CheckCircle, colour: 'text-emerald-400', label: 'Success' },
     error:   { icon: XCircle,    colour: 'text-red-400',     label: 'Error'   },
-    running: { icon: RefreshCw,  colour: 'text-blue-400 animate-spin', label: 'Running' },
+    running: { icon: RefreshCw,  colour: 'text-amber-400 animate-pulse', label: 'Running' },
     pending: { icon: Clock,      colour: 'text-slate-400',   label: 'Pending' },
   };
   const { icon: Icon, colour, label } = map[status] || map.pending;
@@ -36,7 +36,7 @@ function InvestigationBadge({ status }) {
   if (!status) return null;
   const map = {
     done:    { icon: Search,    colour: 'text-teal-400',   label: 'Analysed' },
-    running: { icon: RefreshCw, colour: 'text-blue-400 animate-spin', label: 'Analysing…' },
+    running: { icon: RefreshCw, colour: 'text-amber-400 animate-pulse', label: 'Analysing…' },
     pending: { icon: Clock,     colour: 'text-slate-500',  label: 'Analysis queued' },
     error:   { icon: XCircle,   colour: 'text-red-400',    label: 'Analysis failed' },
   };
@@ -887,10 +887,22 @@ export default function Scrapers() {
                     <StatusBadge status={source.last_run_status} />
                     <span className="text-slate-600 text-xs">{fmtDate(source.last_run_at)}</span>
                   </div>
-                  <div className="hidden sm:block shrink-0 text-right min-w-[70px]">
-                    <span className="text-emerald-400 font-semibold text-sm">{source.last_run_properties ?? 0}</span>
-                    <span className="text-slate-600 text-xs"> new</span>
-                    <p className="text-slate-600 text-xs">{source.total_properties_found ?? 0} total</p>
+                  <div className="hidden sm:block shrink-0 text-right min-w-[80px]">
+                    {source.last_run_new != null ? (
+                      <>
+                        <span className="text-emerald-400 font-semibold text-sm">{source.last_run_new}</span>
+                        <span className="text-slate-600 text-xs"> new</span>
+                        {source.last_run_merged > 0 && (
+                          <p className="text-slate-500 text-xs">{source.last_run_merged} merged</p>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-emerald-400 font-semibold text-sm">{source.last_run_properties ?? 0}</span>
+                        <span className="text-slate-600 text-xs"> found</span>
+                      </>
+                    )}
+                    <p className="text-slate-600 text-xs">{source.total_properties_found ?? 0} all time</p>
                   </div>
 
                   {/* Actions */}
@@ -901,7 +913,7 @@ export default function Scrapers() {
                       title="Run scraper now"
                       className="p-1.5 rounded-lg text-slate-500 hover:text-emerald-400 hover:bg-slate-800 disabled:opacity-40 transition-colors"
                     >
-                      <Play size={14} className={running[source.id] ? 'animate-pulse' : ''} />
+                      <Play size={14} className={running[source.id] || source.last_run_status === 'running' ? 'text-amber-400 animate-pulse' : ''} />
                     </button>
                     <button
                       onClick={() => handleInvestigate(source.id, source.name)}

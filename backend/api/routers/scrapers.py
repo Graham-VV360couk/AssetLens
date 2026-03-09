@@ -219,6 +219,8 @@ class ScraperSourceResponse(BaseModel):
     last_run_at: Optional[datetime]
     last_run_status: Optional[str]
     last_run_properties: Optional[int]
+    last_run_new: Optional[int]
+    last_run_merged: Optional[int]
     last_error: Optional[str]
     total_properties_found: Optional[int]
     created_at: Optional[datetime]
@@ -1410,12 +1412,17 @@ def _run_scraper(source_id: int):
                     new_property_ids.append(prop.id)
 
                 sp.commit()
+                db.commit()  # commit each listing immediately so session stays clean
             except Exception as e:
                 if sp is not None:
                     try:
                         sp.rollback()
                     except Exception:
                         pass
+                try:
+                    db.rollback()  # safe: prior listings already individually committed
+                except Exception:
+                    pass
                 err_msg = str(e)[:200]
                 logger.warning("Error saving listing %s: %s", listing.get('address', '?'), err_msg)
                 if first_save_error is None:
@@ -1424,7 +1431,9 @@ def _run_scraper(source_id: int):
         db.commit()
 
         source.last_run_status = 'success'
-        source.last_run_properties = new_count
+        source.last_run_new = new_count
+        source.last_run_merged = merged_count
+        source.last_run_properties = new_count + merged_count
         source.total_properties_found = (source.total_properties_found or 0) + new_count
         source.last_error = first_save_error
         db.commit()
@@ -1775,11 +1784,21 @@ def get_library(db: Session = Depends(get_db)):
 
 
 @router.get('/{source_id}/logs')
-def get_run_logs(source_id: int, run_id: Optional[str] = None, limit: int = 200, db: Session = Depends(get_db)):
-    """Return recent log entries for a source. Optionally filter to a specific run_id."""
+def get_run_logs(source_id: int, run_id: Optional[str] = None, all_runs: bool = False, limit: int = 200, db: Session = Depends(get_db)):
+    """Return log entries for a source. Defaults to the most recent run only."""
     q = db.query(ScraperRunLog).filter(ScraperRunLog.source_id == source_id)
     if run_id:
         q = q.filter(ScraperRunLog.run_id == run_id)
+    elif not all_runs:
+        # Find the most recent run_id and filter to it
+        latest = (
+            db.query(ScraperRunLog.run_id)
+            .filter(ScraperRunLog.source_id == source_id)
+            .order_by(ScraperRunLog.created_at.desc())
+            .first()
+        )
+        if latest:
+            q = q.filter(ScraperRunLog.run_id == latest.run_id)
     logs = q.order_by(ScraperRunLog.created_at.desc()).limit(limit).all()
     return [
         {
