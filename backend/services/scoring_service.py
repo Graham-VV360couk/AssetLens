@@ -73,11 +73,12 @@ class PropertyScoringService:
             price_deviation_pct = (prop.asking_price - estimated_value) / estimated_value
             price_score = self._calc_price_score(price_deviation_pct)
 
-        # 3. Rental yield
+        # 3. Rental yield — require a credible asking price (>= £25k) to avoid inflated
+        # yields from auction lot numbers or near-zero guide prices
         monthly_rent = self._estimate_rent(prop.postcode, prop.property_type, prop.bedrooms)
         gross_yield_pct = None
         yield_score = 10.0  # neutral if no data
-        if monthly_rent and prop.asking_price and prop.asking_price > 0:
+        if monthly_rent and prop.asking_price and prop.asking_price >= 25_000:
             gross_yield_pct = (monthly_rent * 12) / prop.asking_price * 100
             yield_score = self._calc_yield_score(gross_yield_pct)
 

@@ -405,8 +405,9 @@ def _scrape_allsop_json(source_url: str, session: requests.Session, max_pages: i
                 if not address or len(address) < 5:
                     continue
 
-                guide = lot.get('guide_price_lower') or lot.get('website_price_lower') or lot.get('sort_price')
-                guide_price = int(guide) if guide else None
+                guide = lot.get('guide_price_lower') or lot.get('website_price_lower')
+                # Note: sort_price is a sort key, not a real price — do not use as fallback
+                guide_price = int(guide) if guide and int(guide) >= 1000 else None
 
                 postcode = (lot.get('postcode') or _extract_postcode(address) or '')[:10].strip()
                 lot_number = str(lot.get('lot_number_text') or lot.get('lot_number') or '')
