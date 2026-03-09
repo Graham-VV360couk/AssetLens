@@ -70,6 +70,32 @@ def _get_area_stats(db: Session, district: str) -> dict:
     return stats
 
 
+@router.get('/national/trends')
+def get_national_trends(db: Session = Depends(get_db)):
+    """National (England & Wales) average price per year — for comparison overlay."""
+    now = datetime.utcnow()
+    cutoff = now - timedelta(days=365 * 10)
+    rows = (
+        db.query(
+            extract('year', SalesHistory.sale_date).label('year'),
+            func.avg(SalesHistory.sale_price).label('avg_price'),
+            func.count(SalesHistory.id).label('transactions'),
+        )
+        .filter(
+            SalesHistory.sale_date >= cutoff,
+            SalesHistory.sale_price > 10000,
+            SalesHistory.sale_price < 5_000_000,
+        )
+        .group_by(extract('year', SalesHistory.sale_date))
+        .order_by(extract('year', SalesHistory.sale_date))
+        .all()
+    )
+    return [
+        {'year': int(r.year), 'avg_price': round(float(r.avg_price)), 'transactions': int(r.transactions)}
+        for r in rows
+    ]
+
+
 @router.get('/{postcode}/stats', response_model=AreaStats)
 def get_area_stats(postcode: str, db: Session = Depends(get_db)):
     district = postcode.split(' ')[0].upper() if ' ' in postcode else postcode.upper()[:4]
@@ -194,29 +220,3 @@ def get_price_distribution(
         'median': sorted(prices)[len(prices) // 2],
         'avg': round(sum(prices) / len(prices)),
     }
-
-
-@router.get('/national/trends')
-def get_national_trends(db: Session = Depends(get_db)):
-    """National (England & Wales) average price per year — for comparison overlay."""
-    now = datetime.utcnow()
-    cutoff = now - timedelta(days=365 * 10)
-    rows = (
-        db.query(
-            extract('year', SalesHistory.sale_date).label('year'),
-            func.avg(SalesHistory.sale_price).label('avg_price'),
-            func.count(SalesHistory.id).label('transactions'),
-        )
-        .filter(
-            SalesHistory.sale_date >= cutoff,
-            SalesHistory.sale_price > 10000,
-            SalesHistory.sale_price < 5_000_000,
-        )
-        .group_by(extract('year', SalesHistory.sale_date))
-        .order_by(extract('year', SalesHistory.sale_date))
-        .all()
-    )
-    return [
-        {'year': int(r.year), 'avg_price': round(float(r.avg_price)), 'transactions': int(r.transactions)}
-        for r in rows
-    ]

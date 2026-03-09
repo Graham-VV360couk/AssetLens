@@ -33,8 +33,12 @@ export default function SalesHistoryChart({ data, currentPrice, nationalData }) 
   }
 
   // Merge national into district data by year
+  // nationalData may be an array or an object {sales_by_year:[...]} depending on API version
+  const nationalArray = Array.isArray(nationalData)
+    ? nationalData
+    : (Array.isArray(nationalData?.sales_by_year) ? nationalData.sales_by_year : []);
   const nationalByYear = {};
-  (nationalData || []).forEach(n => { nationalByYear[n.year] = n.avg_price; });
+  nationalArray.forEach(n => { nationalByYear[n.year] = n.avg_price; });
 
   const chartData = data.map(d => ({
     year: d.year,
@@ -113,7 +117,7 @@ export default function SalesHistoryChart({ data, currentPrice, nationalData }) 
         />
 
         {/* National average line (dashed) */}
-        {nationalData?.length > 0 && (
+        {nationalArray.length > 0 && (
           <Line
             yAxisId="price"
             type="monotone"

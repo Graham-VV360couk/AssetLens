@@ -214,34 +214,51 @@ class PropertyScoringService:
         """Get estimated monthly rent from rental data or aggregates."""
         district = postcode.split(' ')[0] if ' ' in postcode else postcode[:4]
 
-        # Try exact postcode first
+        # 1. Best match: whole-property aggregate for this district + bedrooms (OpenRent data)
+        if bedrooms:
+            rental = (
+                self.db.query(Rental)
+                .filter(
+                    Rental.postcode.like(f"{district}%"),
+                    Rental.is_aggregated == True,
+                    Rental.is_hmo == False,
+                    Rental.bedrooms == bedrooms,
+                )
+                .order_by(Rental.date_listed.desc())
+                .first()
+            )
+            if rental and rental.rent_monthly:
+                return float(rental.rent_monthly)
+
+        # 2. Any whole-property aggregate for this district (scale by beds if available)
+        rental = (
+            self.db.query(Rental)
+            .filter(
+                Rental.postcode.like(f"{district}%"),
+                Rental.is_aggregated == True,
+                Rental.is_hmo == False,
+            )
+            .order_by(Rental.date_listed.desc())
+            .first()
+        )
+        if rental and rental.rent_monthly:
+            return float(rental.rent_monthly)
+
+        # 3. HMO/SpareRoom aggregate — scale per-room rate by bedrooms
         rental = (
             self.db.query(Rental)
             .filter(Rental.postcode.like(f"{district}%"), Rental.is_aggregated == True)
             .order_by(Rental.date_listed.desc())
             .first()
         )
-
         if rental and rental.rent_monthly:
-            # Adjust for property size
-            if bedrooms and rental.num_rooms:
-                return float(rental.rent_per_room * bedrooms) if rental.rent_per_room else float(rental.rent_monthly)
+            if bedrooms and rental.rent_per_room:
+                return float(rental.rent_per_room * bedrooms)
             return float(rental.rent_monthly)
 
-        # Fallback: only apply when we have both property type AND bedrooms.
-        # Without these we can't make a meaningful estimate — returning None forces
-        # a neutral yield score instead of inflating it with a London-average rent.
-        if not property_type or property_type in ('unknown', '') or not bedrooms:
-            return None
-
-        fallback = {
-            ('flat', 1): 950, ('flat', 2): 1300, ('flat', 3): 1600,
-            ('terraced', 2): 1100, ('terraced', 3): 1350, ('terraced', 4): 1700,
-            ('semi-detached', 3): 1400, ('semi-detached', 4): 1750,
-            ('detached', 3): 1500, ('detached', 4): 1900, ('detached', 5): 2400,
-        }
-        key = (property_type.lower().strip(), bedrooms)
-        return fallback.get(key) or None
+        # 4. No local data — return None rather than using a national default that
+        #    would give every property the same yield and cluster scores.
+        return None
 
     def _get_area_stats(self, postcode: str) -> dict:
         """Compute area price statistics from sales history."""

@@ -3,7 +3,7 @@ import {
   Plus, Play, Trash2, ToggleLeft, ToggleRight, Globe, RefreshCw,
   CheckCircle, XCircle, Clock, AlertCircle, Search, ChevronDown, ChevronUp,
   Layers, Link2, ArrowRight, Zap, Pencil, Save, X, FileText, HelpCircle,
-  Lightbulb, BookOpen, Terminal
+  Lightbulb, BookOpen, Terminal, BarChart2
 } from 'lucide-react';
 import { scrapersApi } from '../services/api';
 import toast from 'react-hot-toast';
@@ -636,6 +636,9 @@ export default function Scrapers() {
   const [running, setRunning] = useState({});
   const [expanded, setExpanded] = useState({});  // which rows show investigation panel
   const [editing, setEditing] = useState({});     // which rows show edit panel
+  const [rescoring, setRescoring] = useState(false);
+  const [rescoreStatus, setRescoreStatus] = useState(null); // null | 'running' | 'done' | 'error'
+  const [scoringStats, setScoringStats] = useState(null);
 
   const load = async () => {
     try {
@@ -746,6 +749,50 @@ export default function Scrapers() {
   const toggleEdit = (id) => {
     setEditing(prev => ({ ...prev, [id]: !prev[id] }));
     if (expanded[id]) setExpanded(prev => ({ ...prev, [id]: false }));
+  };
+
+  const handleRescore = async () => {
+    setRescoring(true);
+    setRescoreStatus('running');
+    setScoringStats(null);
+    try {
+      // Kick off background scoring job
+      const r = await fetch('/api/scoring/run', { method: 'POST' });
+      if (!r.ok) throw new Error('Scoring job failed to start');
+      toast.success('Re-scoring started — this runs in the background');
+      setRescoreStatus('running');
+
+      // Poll status every 5s until scored count stabilises
+      let prev = null;
+      let stableCount = 0;
+      const poll = async () => {
+        try {
+          const s = await fetch('/api/scoring/status').then(r => r.json());
+          setScoringStats(s);
+          if (prev !== null && s.total_scored === prev) {
+            stableCount++;
+            if (stableCount >= 2) {
+              setRescoreStatus('done');
+              setRescoring(false);
+              toast.success(`Re-scoring complete — ${s.total_scored} properties scored`);
+              return;
+            }
+          } else {
+            stableCount = 0;
+          }
+          prev = s.total_scored;
+          setTimeout(poll, 5000);
+        } catch {
+          setRescoreStatus('error');
+          setRescoring(false);
+        }
+      };
+      setTimeout(poll, 3000);
+    } catch (e) {
+      toast.error(e.message || 'Failed to start re-scoring');
+      setRescoreStatus('error');
+      setRescoring(false);
+    }
   };
 
   const fmtDate = (d) => d
@@ -995,6 +1042,65 @@ export default function Scrapers() {
                 />
               </div>
             ))}
+          </div>
+        )}
+      </div>
+
+      {/* Re-score All Properties */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <BarChart2 size={16} className="text-emerald-400" />
+            <div>
+              <h2 className="text-sm font-semibold text-slate-300">Re-score All Properties</h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Recalculates investment scores, yield, and valuations for every active property.
+                Run this after adding rental data or importing Land Registry data.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleRescore}
+            disabled={rescoring}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 shrink-0"
+          >
+            {rescoring
+              ? <RefreshCw size={14} className="animate-spin" />
+              : <Play size={14} />}
+            {rescoring ? 'Scoring…' : 'Run Now'}
+          </button>
+        </div>
+
+        {(rescoreStatus || scoringStats) && (
+          <div className="mt-4 flex items-center gap-4 text-xs text-slate-400 bg-slate-800/40 rounded-xl px-4 py-3">
+            {rescoreStatus === 'running' && (
+              <RefreshCw size={13} className="text-amber-400 animate-spin shrink-0" />
+            )}
+            {rescoreStatus === 'done' && (
+              <CheckCircle size={13} className="text-emerald-400 shrink-0" />
+            )}
+            {rescoreStatus === 'error' && (
+              <XCircle size={13} className="text-red-400 shrink-0" />
+            )}
+            <span>
+              {rescoreStatus === 'running' && 'Scoring in progress…'}
+              {rescoreStatus === 'done' && 'Complete'}
+              {rescoreStatus === 'error' && 'Error — check backend logs'}
+            </span>
+            {scoringStats && (
+              <>
+                <span className="text-slate-600">·</span>
+                <span><span className="text-white font-semibold">{scoringStats.total_scored}</span> scored</span>
+                {scoringStats.unscored > 0 && (
+                  <><span className="text-slate-600">·</span>
+                  <span className="text-amber-400">{scoringStats.unscored} pending</span></>
+                )}
+                {scoringStats.last_calculated_at && (
+                  <><span className="text-slate-600">·</span>
+                  <span className="text-slate-500">Last run {new Date(scoringStats.last_calculated_at).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}</span></>
+                )}
+              </>
+            )}
           </div>
         )}
       </div>

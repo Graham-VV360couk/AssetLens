@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, Component } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -17,6 +17,21 @@ import ComparableSalesTable from '../components/charts/ComparableSalesTable';
 import PriceHistogramChart from '../components/charts/PriceHistogramChart';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 import { formatCurrency, formatYield, propertyTypeIcon } from '../utils/formatters';
+
+class ChartErrorBoundary extends Component {
+  state = { error: null };
+  static getDerivedStateFromError(error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="h-48 flex items-center justify-center text-slate-600 text-sm">
+          Chart unavailable
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const VERDICT_STYLE = {
   STRONG_BUY: { bg: 'bg-emerald-500/15 border-emerald-500/30', text: 'text-emerald-300', label: 'Strong Buy' },
@@ -681,11 +696,13 @@ export default function PropertyDetail() {
             </div>
           )}
         </div>
-        <SalesHistoryChart
-          data={areaData?.sales_by_year}
-          currentPrice={property.asking_price}
-          nationalData={nationalData}
-        />
+        <ChartErrorBoundary>
+          <SalesHistoryChart
+            data={areaData?.sales_by_year}
+            currentPrice={property.asking_price}
+            nationalData={nationalData}
+          />
+        </ChartErrorBoundary>
         <p className="text-slate-600 text-xs mt-3">
           Source: Land Registry Price Paid Data © Crown copyright and database right 2026
         </p>
@@ -709,7 +726,9 @@ export default function PropertyDetail() {
               </span>
             )}
           </p>
-          <PriceHistogramChart data={priceDistribution} guidePrice={property.asking_price} />
+          <ChartErrorBoundary>
+            <PriceHistogramChart data={priceDistribution} guidePrice={property.asking_price} />
+          </ChartErrorBoundary>
         </motion.div>
 
         {/* Comparable sales table */}
@@ -723,10 +742,12 @@ export default function PropertyDetail() {
           <p className="text-slate-500 text-xs mb-4">
             Recent {property.property_type || ''} sales in {property.postcode?.split(' ')[0]} · last 3 years
           </p>
-          <ComparableSalesTable
-            data={comparables}
-            guidePrice={property.asking_price}
-          />
+          <ChartErrorBoundary>
+            <ComparableSalesTable
+              data={comparables}
+              guidePrice={property.asking_price}
+            />
+          </ChartErrorBoundary>
         </motion.div>
       </div>
       </div> {/* end px-6 */}
