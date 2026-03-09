@@ -223,6 +223,10 @@ export const scrapersApi = {
     const response = await apiClient.post(`/api/scrapers/${id}/investigate`);
     return response.data;
   },
+  hint: async (id, payload) => {
+    const response = await apiClient.post(`/api/scrapers/${id}/hint`, payload);
+    return response.data;
+  },
 };
 
 // Export configured axios instance for custom requests

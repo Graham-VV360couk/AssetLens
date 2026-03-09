@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import {
   Plus, Play, Trash2, ToggleLeft, ToggleRight, Globe, RefreshCw,
   CheckCircle, XCircle, Clock, AlertCircle, Search, ChevronDown, ChevronUp,
-  Layers, Link2, ArrowRight, Zap, Pencil, Save, X, FileText
+  Layers, Link2, ArrowRight, Zap, Pencil, Save, X, FileText, HelpCircle,
+  Lightbulb, BookOpen
 } from 'lucide-react';
 import { scrapersApi } from '../services/api';
 import toast from 'react-hot-toast';
@@ -177,10 +178,130 @@ function EditPanel({ source, onSave, onCancel }) {
   );
 }
 
-function InvestigationPanel({ source, onInvestigate }) {
+function StrategyBadge({ strategy }) {
+  if (!strategy) return null;
+  const type = strategy.type;
+  if (type === 'all_results_url') return (
+    <span className="flex items-center gap-1 text-xs text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-lg font-medium">
+      <CheckCircle size={11} /> All-results URL saved
+    </span>
+  );
+  if (type === 'pagination_template') {
+    const tmpl = strategy.pagination_template || {};
+    return (
+      <span className="flex items-center gap-1 text-xs text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-lg font-medium" title={tmpl.template}>
+        <CheckCircle size={11} /> Pagination template saved
+      </span>
+    );
+  }
+  return null;
+}
+
+function HintPanel({ sourceId, onSaved }) {
+  const [mode, setMode] = useState(null); // 'all' | 'pages'
+  const [allUrl, setAllUrl] = useState('');
+  const [pageUrls, setPageUrls] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const submit = async () => {
+    setError('');
+    setSaving(true);
+    try {
+      const payload = mode === 'all'
+        ? { all_results_url: allUrl.trim() }
+        : { page_urls: pageUrls.split('\n').map(u => u.trim()).filter(Boolean) };
+      const updated = await scrapersApi.hint(sourceId, payload);
+      onSaved(updated);
+      setMode(null);
+    } catch (e) {
+      setError(e.message || 'Failed to save hint');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="border border-dashed border-slate-700 rounded-xl p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <Lightbulb size={13} className="text-amber-400 shrink-0" />
+        <p className="text-xs text-slate-400 font-medium">Help configure scraping for this site</p>
+      </div>
+      <p className="text-xs text-slate-500">
+        If automatic detection isn't finding all properties, you can give us a hint — either a URL that shows everything at once, or a few page URLs so we can learn the pattern.
+      </p>
+
+      {!mode && (
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={() => setMode('all')}
+            className="flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <Globe size={11} /> I have a "show all" URL
+          </button>
+          <button
+            onClick={() => setMode('pages')}
+            className="flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <BookOpen size={11} /> I have 2–3 page URLs
+          </button>
+        </div>
+      )}
+
+      {mode === 'all' && (
+        <div className="space-y-2">
+          <label className="text-xs text-slate-500 block">
+            URL that returns all results on one page (e.g. <code className="text-slate-400">?size=500</code>, <code className="text-slate-400">?per_page=all</code>)
+          </label>
+          <input
+            className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+            placeholder="https://example.com/properties?size=500"
+            value={allUrl}
+            onChange={e => setAllUrl(e.target.value)}
+          />
+          <div className="flex gap-2">
+            <button onClick={submit} disabled={!allUrl.trim() || saving}
+              className="flex items-center gap-1.5 text-xs bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-white px-3 py-1.5 rounded-lg transition-colors font-medium">
+              {saving ? <RefreshCw size={11} className="animate-spin" /> : <Save size={11} />} Save
+            </button>
+            <button onClick={() => setMode(null)} className="text-xs text-slate-500 hover:text-slate-300 px-2 py-1.5">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {mode === 'pages' && (
+        <div className="space-y-2">
+          <label className="text-xs text-slate-500 block">
+            Paste 2–3 page URLs, one per line — we'll work out the pattern automatically
+          </label>
+          <textarea
+            rows={3}
+            className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono"
+            placeholder={`https://example.com/property-search/3/?submit=1\nhttps://example.com/property-search/4/?submit=1\nhttps://example.com/property-search/5/?submit=1`}
+            value={pageUrls}
+            onChange={e => setPageUrls(e.target.value)}
+          />
+          <div className="flex gap-2">
+            <button onClick={submit} disabled={pageUrls.split('\n').filter(u => u.trim()).length < 2 || saving}
+              className="flex items-center gap-1.5 text-xs bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-white px-3 py-1.5 rounded-lg transition-colors font-medium">
+              {saving ? <RefreshCw size={11} className="animate-spin" /> : <Save size={11} />} Derive pattern
+            </button>
+            <button onClick={() => setMode(null)} className="text-xs text-slate-500 hover:text-slate-300 px-2 py-1.5">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {error && <p className="text-xs text-red-400">{error}</p>}
+    </div>
+  );
+}
+
+function InvestigationPanel({ source, onInvestigate, onSourceUpdated }) {
   const data = source.investigation_data ? (() => {
     try { return JSON.parse(source.investigation_data); } catch { return null; }
   })() : null;
+
+  const [showHint, setShowHint] = useState(false);
 
   if (source.investigation_status === 'pending' || source.investigation_status === 'running') {
     return (
@@ -193,14 +314,15 @@ function InvestigationPanel({ source, onInvestigate }) {
 
   if (!data) {
     return (
-      <div className="px-5 py-4 bg-slate-800/30 border-t border-slate-800 flex items-center justify-between">
-        <span className="text-slate-500 text-sm">No investigation data yet.</span>
-        <button
-          onClick={onInvestigate}
-          className="flex items-center gap-1.5 text-xs text-teal-400 hover:text-teal-300 bg-teal-400/10 hover:bg-teal-400/20 px-3 py-1.5 rounded-lg transition-colors"
-        >
-          <Search size={12} /> Analyse Site
-        </button>
+      <div className="px-5 py-4 bg-slate-800/30 border-t border-slate-800 space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="text-slate-500 text-sm">No investigation data yet.</span>
+          <button onClick={onInvestigate}
+            className="flex items-center gap-1.5 text-xs text-teal-400 hover:text-teal-300 bg-teal-400/10 hover:bg-teal-400/20 px-3 py-1.5 rounded-lg transition-colors">
+            <Search size={12} /> Analyse Site
+          </button>
+        </div>
+        <HintPanel sourceId={source.id} onSaved={updated => { onSourceUpdated(updated); setShowHint(false); }} />
       </div>
     );
   }
@@ -210,14 +332,48 @@ function InvestigationPanel({ source, onInvestigate }) {
   const detail = data.detail_page || {};
   const ajax = data.ajax_indicators || [];
   const recs = data.recommendations || [];
+  const strategy = data.strategy || null;
+
+  // Show hint panel when: no cards found, or explicitly opened
+  const needsHelp = (cards.count === 0 || cards.count == null) && !strategy;
 
   return (
     <div className="border-t border-slate-800 bg-slate-800/20 px-5 py-4 space-y-4">
+      {/* Strategy confirmed banner */}
+      {strategy && (
+        <div className="flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-3 py-2.5">
+          <CheckCircle size={14} className="text-emerald-400 shrink-0" />
+          <div className="flex-1 min-w-0">
+            {strategy.type === 'all_results_url' && (
+              <p className="text-xs text-emerald-300 font-medium">
+                Using all-results URL: <span className="font-mono text-emerald-400/80 truncate">{strategy.all_results_url}</span>
+              </p>
+            )}
+            {strategy.type === 'pagination_template' && (
+              <>
+                <p className="text-xs text-emerald-300 font-medium">
+                  Using pagination template: <span className="font-mono text-emerald-400/80">{strategy.pagination_template?.template}</span>
+                </p>
+                <p className="text-xs text-emerald-400/60 mt-0.5">
+                  Start page {strategy.pagination_template?.start_page} · derived from pages {strategy.pagination_template?.sample_pages?.join(', ')}
+                </p>
+              </>
+            )}
+          </div>
+          <button onClick={() => setShowHint(h => !h)}
+            className="text-xs text-slate-500 hover:text-slate-300 shrink-0 transition-colors">
+            {showHint ? 'Cancel' : 'Change'}
+          </button>
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-4 text-xs">
         <div className="flex items-center gap-2">
           <Layers size={13} className="text-slate-500" />
           <span className="text-slate-400">Cards found:</span>
-          <span className="text-white font-semibold">{cards.count ?? '?'}</span>
+          <span className={clsx('font-semibold', (cards.count ?? 0) > 0 ? 'text-white' : 'text-amber-400')}>
+            {cards.count ?? '?'}
+          </span>
           {cards.selector && <span className="text-slate-600">({cards.selector})</span>}
         </div>
         <div className="flex items-center gap-2">
@@ -247,7 +403,7 @@ function InvestigationPanel({ source, onInvestigate }) {
             <span key={f} className="text-xs bg-slate-700 text-slate-300 px-2 py-0.5 rounded-md">{f}</span>
           ))}
           {!source.scrape_detail_pages && (
-            <span className="text-xs text-amber-400/70 ml-1">(enable "Fetch detail pages" in settings to collect these)</span>
+            <span className="text-xs text-amber-400/70 ml-1">(enable "Fetch detail pages" in settings)</span>
           )}
         </div>
       )}
@@ -272,18 +428,32 @@ function InvestigationPanel({ source, onInvestigate }) {
         </div>
       )}
 
+      {/* Hint panel — shown when no cards found OR user clicks help */}
+      {(needsHelp || showHint) && !strategy && (
+        <HintPanel sourceId={source.id} onSaved={updated => { onSourceUpdated(updated); setShowHint(false); }} />
+      )}
+      {showHint && strategy && (
+        <HintPanel sourceId={source.id} onSaved={updated => { onSourceUpdated(updated); setShowHint(false); }} />
+      )}
+
       <div className="flex items-center justify-between pt-1">
         {data.analysed_at && (
           <span className="text-xs text-slate-600">
             Analysed {new Date(data.analysed_at).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}
           </span>
         )}
-        <button
-          onClick={onInvestigate}
-          className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-teal-400 transition-colors"
-        >
-          <RefreshCw size={11} /> Re-analyse
-        </button>
+        <div className="flex items-center gap-3">
+          {!needsHelp && !strategy && (
+            <button onClick={() => setShowHint(h => !h)}
+              className="flex items-center gap-1 text-xs text-slate-600 hover:text-amber-400 transition-colors">
+              <HelpCircle size={11} /> Help configure
+            </button>
+          )}
+          <button onClick={onInvestigate}
+            className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-teal-400 transition-colors">
+            <RefreshCw size={11} /> Re-analyse
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -635,6 +805,7 @@ export default function Scrapers() {
                   <InvestigationPanel
                     source={source}
                     onInvestigate={() => handleInvestigate(source.id, source.name)}
+                    onSourceUpdated={updated => setSources(prev => prev.map(s => s.id === updated.id ? updated : s))}
                   />
                 )}
               </div>
@@ -647,9 +818,9 @@ export default function Scrapers() {
       <div className="flex items-start gap-3 bg-slate-900/50 border border-slate-800 rounded-xl p-4">
         <AlertCircle size={16} className="text-amber-400 mt-0.5 shrink-0" />
         <div className="text-xs text-slate-500 space-y-1">
-          <p><span className="text-slate-300 font-medium">Site analysis:</span> When you add a source, AssetLens automatically analyses its structure — detecting pagination strategy and whether property detail pages contain extra data.</p>
-          <p><span className="text-slate-300 font-medium">AJAX / Load More sites:</span> agentspropertyauction.com uses the WordPress Ajax Load More plugin. AssetLens calls the AJAX endpoint directly to get all properties — no headless browser needed. Set "Max pages" to control how many Load More clicks to simulate (9 properties each).</p>
-          <p><span className="text-slate-300 font-medium">Detail pages:</span> Enable "Fetch detail pages" in settings to collect description, tenure, and legal pack URLs from individual property pages. This adds ~2s per property to each run.</p>
+          <p><span className="text-slate-300 font-medium">Site analysis:</span> When you add a source, AssetLens automatically analyses its structure — detecting pagination, card selectors, and whether property detail pages contain extra data.</p>
+          <p><span className="text-slate-300 font-medium">Can't find all properties?</span> Open the analysis panel (▾) and use "Help configure scraping". Either paste a URL that shows all results at once (e.g. <code className="text-slate-400">?size=500</code>), or paste 2–3 page URLs and the system will derive the pagination pattern automatically.</p>
+          <p><span className="text-slate-300 font-medium">Detail pages:</span> Enable "Fetch detail pages" in settings to collect description, tenure, and legal pack URLs from individual property pages. Adds ~2s per property per run.</p>
         </div>
       </div>
     </div>

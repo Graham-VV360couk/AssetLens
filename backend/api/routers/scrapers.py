@@ -51,6 +51,12 @@ class ScraperSourceUpdate(BaseModel):
     scrape_detail_pages: Optional[bool] = None
 
 
+class ScraperHint(BaseModel):
+    """User-provided hints to resolve pagination when auto-detection fails."""
+    page_urls: Optional[List[str]] = None       # 2+ sample page URLs → derive template
+    all_results_url: Optional[str] = None        # URL returning all results on one page
+
+
 class ScraperSourceResponse(BaseModel):
     id: int
     name: str
@@ -75,6 +81,72 @@ class ScraperSourceResponse(BaseModel):
 
 
 # --- Helpers ---
+
+def _derive_pagination_pattern(urls: List[str]) -> Optional[dict]:
+    """
+    Given 2+ sample page URLs, find the incrementing numeric path segment
+    and return a pagination template dict, e.g.:
+      { "template": "https://site.com/search/{page}/", "query": "submit=1", "start_page": 1 }
+    Returns None if no clear pattern is found.
+    """
+    cleaned = [u.strip() for u in (urls or []) if u.strip()]
+    if len(cleaned) < 2:
+        return None
+
+    parsed = [urlparse(u) for u in cleaned]
+
+    # Split paths into non-empty segments
+    def path_parts(p):
+        return [s for s in p.path.strip('/').split('/') if s]
+
+    parts_list = [path_parts(p) for p in parsed]
+
+    # All must have same segment count
+    if len(set(len(p) for p in parts_list)) != 1:
+        return None
+
+    n_segs = len(parts_list[0])
+    varying_idx = None
+    for i in range(n_segs):
+        vals = [p[i] for p in parts_list]
+        if all(v.isdigit() for v in vals) and len(set(vals)) == len(vals):
+            # Check values are consecutive / sequential
+            nums = sorted(int(v) for v in vals)
+            diffs = [nums[j+1] - nums[j] for j in range(len(nums)-1)]
+            if len(set(diffs)) == 1:  # consistent step
+                varying_idx = i
+                break
+
+    if varying_idx is None:
+        return None
+
+    # Build template path
+    template_parts = list(parts_list[0])
+    template_parts[varying_idx] = '{page}'
+    base = f"{parsed[0].scheme}://{parsed[0].netloc}"
+    template_path = '/' + '/'.join(template_parts) + '/'
+
+    # Carry query string from the sample URLs (use first that has one, strip page-like params)
+    query = parsed[0].query or ''
+
+    # Infer start page (extrapolate back from lowest sample page)
+    nums = sorted(int(p[varying_idx]) for p in parts_list)
+    step = nums[1] - nums[0]
+    start_page = max(1, nums[0] - step * (nums[0] // step - 1)) if step else 1
+    # Simple: assume start is 1 if lowest sample >= 2, else use lowest
+    start_page = 1 if nums[0] >= 2 else nums[0]
+
+    template_url = base + template_path
+    if query:
+        template_url += '?' + query
+
+    return {
+        'template': template_url,
+        'start_page': start_page,
+        'step': step,
+        'sample_pages': nums,
+    }
+
 
 def _robots_allowed(url: str) -> bool:
     try:
@@ -762,14 +834,50 @@ def _run_scraper(source_id: int):
         all_listings = []
         domain = urlparse(source.url).netloc.lower()
 
+        # Load stored strategy from investigation_data (user hints override auto-detection)
+        inv_data = {}
+        try:
+            if source.investigation_data:
+                inv_data = json.loads(source.investigation_data)
+        except Exception:
+            pass
+        strategy = inv_data.get('strategy', {})
+
         # Check for JSON API handler first (bypasses HTML scraping entirely)
         json_handler = next((h for pat, h in JSON_HANDLERS.items() if pat in domain), None)
 
         if json_handler:
             all_listings = json_handler(source.url, session, source.max_pages)
             logger.info("Source %s JSON handler: %d listings", source.name, len(all_listings))
+
+        elif strategy.get('all_results_url'):
+            # User provided a single URL that returns all results
+            url = strategy['all_results_url']
+            logger.info("Source %s using all-results URL: %s", source.name, url)
+            soup = _scrape_page(url, session)
+            if soup:
+                all_listings = _extract_listings(soup, url)
+                logger.info("Source %s all-results: %d listings", source.name, len(all_listings))
+
+        elif strategy.get('pagination_template'):
+            # User provided sample page URLs → derived template
+            tmpl = strategy['pagination_template']
+            template = tmpl['template']
+            start = tmpl.get('start_page', 1)
+            logger.info("Source %s using pagination template: %s (start=%d)", source.name, template, start)
+            for page_num in range(start, start + source.max_pages):
+                page_url = template.replace('{page}', str(page_num))
+                soup = _scrape_page(page_url, session)
+                if not soup:
+                    break
+                listings = _extract_listings(soup, page_url)
+                if not listings:
+                    break
+                all_listings.extend(listings)
+                logger.info("Source %s template page %d: %d listings", source.name, page_num, len(listings))
+
         else:
-            # HTML scraping with standard pagination
+            # HTML scraping with standard pagination auto-detection
             first_soup = _scrape_page(source.url, session)
             if first_soup:
                 first_page = _extract_listings(first_soup, source.url)
@@ -965,3 +1073,58 @@ def investigate_source(source_id: int, background_tasks: BackgroundTasks, db: Se
     db.commit()
     background_tasks.add_task(_investigate_site, source_id)
     return {"message": f"Investigation started for {source.name}"}
+
+
+@router.post('/{source_id}/hint', response_model=ScraperSourceResponse)
+def save_hint(source_id: int, hint: ScraperHint, db: Session = Depends(get_db)):
+    """
+    Save a user-provided scraping hint:
+    - all_results_url: a URL that returns all results on one page
+    - page_urls: 2+ sample page URLs to derive a pagination template
+    The derived strategy is merged into investigation_data.strategy.
+    """
+    source = db.query(ScraperSource).filter(ScraperSource.id == source_id).first()
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    # Load existing investigation data
+    inv_data = {}
+    try:
+        if source.investigation_data:
+            inv_data = json.loads(source.investigation_data)
+    except Exception:
+        pass
+
+    strategy = {}
+
+    if hint.all_results_url and hint.all_results_url.strip():
+        strategy = {
+            'type': 'all_results_url',
+            'all_results_url': hint.all_results_url.strip(),
+            'confirmed_by': 'user_hint',
+            'confirmed_at': datetime.utcnow().isoformat(),
+        }
+
+    elif hint.page_urls and len(hint.page_urls) >= 2:
+        tmpl = _derive_pagination_pattern(hint.page_urls)
+        if not tmpl:
+            raise HTTPException(
+                status_code=422,
+                detail="Could not derive a pagination pattern from those URLs. "
+                       "Make sure they differ only by an incrementing page number."
+            )
+        strategy = {
+            'type': 'pagination_template',
+            'pagination_template': tmpl,
+            'confirmed_by': 'user_hint',
+            'confirmed_at': datetime.utcnow().isoformat(),
+        }
+
+    else:
+        raise HTTPException(status_code=422, detail="Provide either all_results_url or at least 2 page_urls")
+
+    inv_data['strategy'] = strategy
+    source.investigation_data = json.dumps(inv_data)
+    db.commit()
+    db.refresh(source)
+    return source
