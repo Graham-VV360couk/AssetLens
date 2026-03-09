@@ -307,11 +307,13 @@ def main(years: int, start_year: Optional[int], end_year: Optional[int], batch_s
 
     logger.info(f"Importing Land Registry data from {start_year} to {end_year}")
 
-    # Create database connection
-    DATABASE_URL = (
-        f"postgresql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}"
-        f"@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
-    )
+    # Create database connection — prefer DATABASE_URL if set, otherwise build from components
+    DATABASE_URL = os.getenv('DATABASE_URL')
+    if not DATABASE_URL:
+        DATABASE_URL = (
+            f"postgresql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}"
+            f"@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
+        )
 
     engine = create_engine(DATABASE_URL)
     SessionLocal = sessionmaker(bind=engine)
