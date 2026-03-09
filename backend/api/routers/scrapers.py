@@ -841,12 +841,22 @@ def _extract_listings(soup: BeautifulSoup, base_url: str) -> list:
             date_el = card.select_one('.auction-date, time, [class*="date"], [datetime]')
             date_text = date_el.get('datetime') or date_el.get_text(strip=True) if date_el else ''
 
+            # Extract primary image
+            img_el = card.select_one('img[src], img[data-src], img[data-lazy-src]')
+            image_url = None
+            if img_el:
+                src = img_el.get('src') or img_el.get('data-src') or img_el.get('data-lazy-src') or ''
+                if src and not src.startswith('data:'):
+                    image_url = urljoin(base_url, src)
+
             listings.append({
                 'address': address,
                 'postcode': _extract_postcode(address),
                 'guide_price': price,
                 'lot_number': lot_number,
                 'source_url': source_url,
+                'image_url': image_url,
+                'images': [image_url] if image_url else [],
             })
         except Exception:
             continue
@@ -1289,6 +1299,8 @@ def _run_scraper(source_id: int):
                         town=(listing.get('town') or '')[:100] or None,
                         county=(listing.get('county') or '')[:100] or None,
                         description=listing.get('description') or None,
+                        image_url=(listing.get('image_url') or listing.get('images', [None])[0] if listing.get('images') else listing.get('image_url')) or None,
+                        image_urls=json.dumps(listing.get('images', [])) if listing.get('images') else None,
                         status='active',
                         date_found=datetime.utcnow().date(),
                     )

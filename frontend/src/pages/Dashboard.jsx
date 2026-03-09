@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Building2, TrendingUp, Star, Eye, Activity, AlertTriangle } from 'lucide-react';
+import { Building2, TrendingUp, Star, Eye, Activity, AlertTriangle, RefreshCw, Zap, Brain } from 'lucide-react';
 import { motion } from 'framer-motion';
+import toast from 'react-hot-toast';
 import StatCard from '../components/ui/StatCard';
 import PortfolioDonut from '../components/charts/PortfolioDonut';
 import PropertyCard from '../components/ui/PropertyCard';
@@ -16,6 +17,7 @@ export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [jobRunning, setJobRunning] = useState({});
 
   useEffect(() => {
     dashboardApi.getStats()
@@ -23,6 +25,19 @@ export default function Dashboard() {
       .catch(e => setError(e.message || 'Failed to load dashboard stats'))
       .finally(() => setLoading(false));
   }, []);
+
+  const runJob = async (key, url, label) => {
+    setJobRunning(j => ({ ...j, [key]: true }));
+    try {
+      const r = await fetch(url, { method: 'POST' });
+      const d = await r.json();
+      toast.success(d.message || `${label} started`);
+    } catch (e) {
+      toast.error(`${label} failed: ${e.message}`);
+    } finally {
+      setJobRunning(j => ({ ...j, [key]: false }));
+    }
+  };
 
   if (loading) return (
     <div className="flex items-center justify-center h-full min-h-96">
@@ -133,39 +148,79 @@ export default function Dashboard() {
           </div>
         </motion.div>
 
-        {/* Quick actions / key metrics */}
+        {/* Quick actions */}
         <motion.div
           initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4, duration: 0.4 }}
-          className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col gap-4"
+          className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col gap-3"
         >
           <h2 className="text-white font-semibold">Quick Actions</h2>
+
           <a href="/properties?min_score=70&sort_by=investment_score"
-            className="flex items-center gap-3 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl hover:bg-emerald-500/20 transition-colors group">
-            <Star size={18} className="text-emerald-400" />
+            className="flex items-center gap-3 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl hover:bg-emerald-500/20 transition-colors">
+            <Star size={16} className="text-emerald-400 shrink-0" />
             <div>
-              <div className="text-emerald-300 text-sm font-medium">View High-Value Deals</div>
-              <div className="text-slate-500 text-xs">{stats?.high_value_count ?? 0} properties score ≥ 70</div>
+              <div className="text-emerald-300 text-sm font-medium">Top Deals</div>
+              <div className="text-slate-500 text-xs">{stats?.high_value_count ?? 0} score ≥ 70</div>
             </div>
           </a>
-          <a href="/properties?price_band=brilliant"
-            className="flex items-center gap-3 p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl hover:bg-blue-500/20 transition-colors">
-            <TrendingUp size={18} className="text-blue-400" />
-            <div>
-              <div className="text-blue-300 text-sm font-medium">Brilliant Deals Only</div>
-              <div className="text-slate-500 text-xs">{stats?.by_price_band?.brilliant ?? 0} properties 20%+ below market</div>
-            </div>
-          </a>
+
           <a href="/properties?is_reviewed=false&sort_by=investment_score"
             className="flex items-center gap-3 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl hover:bg-amber-500/20 transition-colors">
-            <Eye size={18} className="text-amber-400" />
+            <Eye size={16} className="text-amber-400 shrink-0" />
             <div>
-              <div className="text-amber-300 text-sm font-medium">Unreviewed Properties</div>
+              <div className="text-amber-300 text-sm font-medium">Unreviewed</div>
               <div className="text-slate-500 text-xs">
                 {stats ? (stats.total_active - (stats.total_reviewed ?? 0)).toLocaleString() : '—'} awaiting review
               </div>
             </div>
           </a>
+
+          <div className="border-t border-slate-800 pt-2 space-y-2">
+            <div className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-1">Batch Analysis</div>
+
+            <button
+              onClick={() => runJob('rescore', '/api/scoring/run', 'Re-score')}
+              disabled={jobRunning.rescore}
+              className="w-full flex items-center gap-3 p-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl transition-colors disabled:opacity-50 text-left"
+            >
+              {jobRunning.rescore
+                ? <RefreshCw size={16} className="text-slate-400 animate-spin shrink-0" />
+                : <RefreshCw size={16} className="text-slate-400 shrink-0" />}
+              <div>
+                <div className="text-slate-300 text-sm font-medium">Re-score All</div>
+                <div className="text-slate-500 text-xs">Recalculate scores using latest LR data</div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => runJob('enrich', '/api/scoring/enrich?min_score=0&limit=50', 'PropertyData enrichment')}
+              disabled={jobRunning.enrich}
+              className="w-full flex items-center gap-3 p-3 bg-blue-900/20 hover:bg-blue-900/30 border border-blue-800/40 rounded-xl transition-colors disabled:opacity-50 text-left"
+            >
+              {jobRunning.enrich
+                ? <Zap size={16} className="text-blue-400 animate-pulse shrink-0" />
+                : <Zap size={16} className="text-blue-400 shrink-0" />}
+              <div>
+                <div className="text-blue-300 text-sm font-medium">Enrich with PropertyData</div>
+                <div className="text-slate-500 text-xs">AVM + rental + flood risk (50 properties, ~150 credits)</div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => runJob('ai', '/api/ai/analyse/batch?limit=20&min_score=50', 'AI analysis')}
+              disabled={jobRunning.ai}
+              className="w-full flex items-center gap-3 p-3 bg-violet-900/20 hover:bg-violet-900/30 border border-violet-800/40 rounded-xl transition-colors disabled:opacity-50 text-left"
+            >
+              {jobRunning.ai
+                ? <Brain size={16} className="text-violet-400 animate-pulse shrink-0" />
+                : <Brain size={16} className="text-violet-400 shrink-0" />}
+              <div>
+                <div className="text-violet-300 text-sm font-medium">AI Analyse Properties</div>
+                <div className="text-slate-500 text-xs">Claude verdict for top 20 unanalysed (score ≥ 50)</div>
+              </div>
+            </button>
+          </div>
         </motion.div>
       </div>
 

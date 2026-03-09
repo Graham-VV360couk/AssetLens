@@ -86,6 +86,7 @@ class PropertySummary(BaseModel):
     status: Optional[str]
     date_found: Optional[datetime]
     is_reviewed: Optional[bool]
+    image_url: Optional[str]
     score: Optional[PropertyScoreSchema]
     ai_insight: Optional[PropertyAIInsightSchema]
 

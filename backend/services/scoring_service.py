@@ -228,15 +228,20 @@ class PropertyScoringService:
                 return float(rental.rent_per_room * bedrooms) if rental.rent_per_room else float(rental.rent_monthly)
             return float(rental.rent_monthly)
 
-        # Fallback: national averages by type/beds
+        # Fallback: only apply when we have both property type AND bedrooms.
+        # Without these we can't make a meaningful estimate — returning None forces
+        # a neutral yield score instead of inflating it with a London-average rent.
+        if not property_type or property_type in ('unknown', '') or not bedrooms:
+            return None
+
         fallback = {
             ('flat', 1): 950, ('flat', 2): 1300, ('flat', 3): 1600,
             ('terraced', 2): 1100, ('terraced', 3): 1350, ('terraced', 4): 1700,
             ('semi-detached', 3): 1400, ('semi-detached', 4): 1750,
             ('detached', 3): 1500, ('detached', 4): 1900, ('detached', 5): 2400,
         }
-        key = (property_type or 'terraced', bedrooms or 3)
-        return fallback.get(key, fallback.get(('terraced', 3), 1350))
+        key = (property_type.lower().strip(), bedrooms)
+        return fallback.get(key) or None
 
     def _get_area_stats(self, postcode: str) -> dict:
         """Compute area price statistics from sales history."""

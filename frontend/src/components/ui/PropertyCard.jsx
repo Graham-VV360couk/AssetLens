@@ -23,10 +23,25 @@ export default function PropertyCard({ property }) {
     <div
       onClick={() => navigate(`/properties/${property.id}`)}
       className={clsx(
-        'bg-slate-900 border border-slate-800 rounded-2xl p-5 cursor-pointer transition-all duration-200 hover:border-slate-600 hover:shadow-lg hover:shadow-black/20 hover:-translate-y-0.5',
+        'bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden cursor-pointer transition-all duration-200 hover:border-slate-600 hover:shadow-lg hover:shadow-black/20 hover:-translate-y-0.5',
         property.is_reviewed && 'opacity-60'
       )}
     >
+      {/* Property image */}
+      {property.image_url && (
+        <div className="h-36 w-full overflow-hidden bg-slate-800">
+          <img
+            src={property.image_url}
+            alt={property.address}
+            className="w-full h-full object-cover"
+            onError={e => { e.target.parentElement.style.display = 'none'; }}
+          />
+        </div>
+      )}
+
+      {/* Card body */}
+      <div className="p-5">
+
       {/* Header */}
       <div className="flex items-start justify-between gap-3 mb-4">
         <div className="min-w-0 flex-1">
@@ -99,6 +114,8 @@ export default function PropertyCard({ property }) {
           </div>
         )}
       </div>
+
+      </div> {/* end card body */}
     </div>
   );
 }

@@ -48,6 +48,10 @@ class Property(Base, TimestampMixin):
     # Description
     description = Column(Text)
 
+    # Images — comma-separated URLs (first is the primary image)
+    image_url = Column(String(1000))      # primary/hero image
+    image_urls = Column(Text)             # JSON array of all scraped image URLs
+
     # Relationships
     sources = relationship('PropertySource', back_populates='property', cascade='all, delete-orphan')
     sales_history = relationship('SalesHistory', back_populates='property', cascade='all, delete-orphan')
