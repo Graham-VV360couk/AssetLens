@@ -266,14 +266,28 @@ class PropertyScoringService:
                 stats[f'avg_price_{key}'] = float(result.avg)
                 stats[f'transaction_count_{key}'] = int(result.cnt)
 
-        # Growth rates
-        if stats.get('avg_price_1yr') and stats.get('avg_price_10yr'):
-            stats['growth_pct_10yr'] = (stats['avg_price_1yr'] - stats['avg_price_10yr']) / stats['avg_price_10yr']
-        if stats.get('avg_price_1yr') and stats.get('avg_price_5yr'):
-            stats['growth_pct_5yr'] = (stats['avg_price_1yr'] - stats['avg_price_5yr']) / stats['avg_price_5yr']
+        # Use the most recent period that has data as the "current" value
+        # (LR data typically lags 12-18 months, so 1yr may be empty)
+        recent_avg = (
+            stats.get('avg_price_1yr') or
+            stats.get('avg_price_3yr') or
+            stats.get('avg_price_5yr')
+        )
+        recent_count = (
+            stats.get('transaction_count_1yr') or
+            stats.get('transaction_count_3yr') or
+            stats.get('transaction_count_5yr') or 0
+        )
 
-        stats['avg_price_1yr'] = stats.get('avg_price_1yr')
-        stats['transaction_count'] = stats.get('transaction_count_1yr', 0)
+        # Growth rates vs 10yr baseline
+        if recent_avg and stats.get('avg_price_10yr'):
+            stats['growth_pct_10yr'] = (recent_avg - stats['avg_price_10yr']) / stats['avg_price_10yr']
+        if recent_avg and stats.get('avg_price_5yr') and recent_avg != stats.get('avg_price_5yr'):
+            stats['growth_pct_5yr'] = (recent_avg - stats['avg_price_5yr']) / stats['avg_price_5yr']
+
+        # Expose the most recent available average as the primary price reference
+        stats['avg_price_1yr'] = recent_avg
+        stats['transaction_count'] = recent_count
 
         return stats
 
