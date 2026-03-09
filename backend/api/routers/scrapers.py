@@ -20,7 +20,11 @@ from backend.models.property import Property, PropertyScore
 from backend.models.auction import Auction
 from backend.models.scraper_source import ScraperSource, ScraperStrategyLibrary
 from backend.models.scraper_run_log import ScraperRunLog
+from backend.models.property_ai_insight import PropertyAIInsight
 from backend.services.scoring_service import PropertyScoringService, save_score
+from backend.services.deduplication_service import PropertyDeduplicator
+from backend.services.propertydata_service import get_service as get_pd_service
+from backend.services.ai_analysis_service import analyse_property
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/api/scrapers', tags=['scrapers'])
@@ -1213,30 +1217,92 @@ def _run_scraper(source_id: int):
                         extra = detail_fn(detail_url, session)
                         listing.update({k: v for k, v in extra.items() if v})
 
-        # Save to database
+        # Save to database with fuzzy deduplication
+        deduplicator = PropertyDeduplicator(db, similarity_threshold=85)
         new_count = 0
+        merged_count = 0
+        new_property_ids = []
         first_save_error = None
+
         for listing in all_listings:
             try:
                 sp = db.begin_nested()
-                existing = db.query(Property).filter(
-                    Property.address == listing['address']
-                ).first()
+                postcode = (listing.get('postcode') or '')[:10].strip()
 
-                if not existing:
+                # Fuzzy duplicate check (exact postcode + 85% address similarity)
+                existing = deduplicator.find_duplicate(listing['address'], postcode) if postcode else None
+
+                # Fall back to exact address match if no postcode
+                if not existing and not postcode:
+                    existing = db.query(Property).filter(
+                        Property.address == listing['address']
+                    ).first()
+
+                if existing:
+                    # Merge new source data into existing property
+                    deduplicator.merge_property_data(
+                        existing,
+                        {
+                            'address': listing['address'],
+                            'asking_price': listing.get('guide_price'),
+                            'description': listing.get('description'),
+                            'town': listing.get('town'),
+                            'county': listing.get('county'),
+                            'bedrooms': listing.get('bedrooms'),
+                            'floor_area_sqm': listing.get('floor_area_sqm'),
+                        },
+                        source_name=source.name,
+                        source_id=listing.get('lot_number'),
+                        source_url=listing.get('source_url'),
+                    )
+                    # Update auction record if same auctioneer has new guide price
+                    if source.source_type == 'auction' and listing.get('guide_price'):
+                        existing_auction = (
+                            db.query(Auction)
+                            .filter(Auction.property_id == existing.id,
+                                    Auction.auctioneer == source.name[:100])
+                            .first()
+                        )
+                        if existing_auction:
+                            existing_auction.guide_price = listing['guide_price']
+                        else:
+                            db.add(Auction(
+                                property_id=existing.id,
+                                auctioneer=source.name[:100],
+                                lot_number=(listing.get('lot_number') or '')[:50],
+                                guide_price=listing.get('guide_price'),
+                                auction_date=datetime.utcnow(),
+                                auction_house_url=(listing.get('source_url') or '')[:500],
+                                is_sold=False,
+                                sale_status='upcoming',
+                            ))
+                    merged_count += 1
+                else:
                     prop = Property(
                         address=listing['address'],
-                        postcode=(listing.get('postcode') or '')[:10].strip(),
-                        property_type='unknown',
+                        postcode=postcode,
+                        property_type=(listing.get('property_type') or 'unknown')[:50],
+                        bedrooms=listing.get('bedrooms'),
+                        bathrooms=listing.get('bathrooms'),
+                        floor_area_sqm=listing.get('floor_area_sqm'),
                         asking_price=listing.get('guide_price'),
+                        town=(listing.get('town') or '')[:100] or None,
+                        county=(listing.get('county') or '')[:100] or None,
+                        description=listing.get('description') or None,
                         status='active',
                         date_found=datetime.utcnow().date(),
                     )
                     db.add(prop)
                     db.flush()
 
+                    # Add source record
+                    deduplicator.add_property_source(
+                        prop.id, source.name,
+                        listing.get('lot_number'), listing.get('source_url')
+                    )
+
                     if source.source_type == 'auction':
-                        auction = Auction(
+                        db.add(Auction(
                             property_id=prop.id,
                             auctioneer=source.name[:100],
                             lot_number=(listing.get('lot_number') or '')[:50],
@@ -1249,9 +1315,10 @@ def _run_scraper(source_id: int):
                             tenure=(listing.get('tenure') or '')[:50] or None,
                             legal_pack_url=(listing.get('legal_pack_url') or '')[:1000] or None,
                             auction_reference=(listing.get('auction_reference') or '')[:100] or None,
-                        )
-                        db.add(auction)
+                        ))
                     new_count += 1
+                    new_property_ids.append(prop.id)
+
                 sp.commit()
             except Exception as e:
                 sp.rollback()
@@ -1267,28 +1334,99 @@ def _run_scraper(source_id: int):
         source.total_properties_found = (source.total_properties_found or 0) + new_count
         source.last_error = first_save_error
         db.commit()
-        msg = f"Scrape complete: {new_count} new properties saved (from {len(all_listings)} found)"
-        logger.info("Scrape complete for %s: %d new properties", source.name, new_count)
+        msg = (f"Scrape complete: {new_count} new, {merged_count} merged "
+               f"(from {len(all_listings)} found)")
+        logger.info("Scrape complete for %s: %d new, %d merged", source.name, new_count, merged_count)
         _db_log(db, source_id, run_id, 'info', msg)
 
-        # Auto-score all active properties after each scrape
+        # --- Step 1: Score all active properties ---
         try:
             _db_log(db, source_id, run_id, 'info', 'Running investment scoring…')
             scorer = PropertyScoringService(db)
             props = db.query(Property).filter(Property.status == 'active').all()
             for prop in props:
                 try:
-                    existing_score = db.query(PropertyScore).filter(PropertyScore.property_id == prop.id).first()
+                    existing_score = db.query(PropertyScore).filter(
+                        PropertyScore.property_id == prop.id
+                    ).first()
                     result = scorer.score_property(prop, existing_score=existing_score)
                     save_score(db, prop, result)
                 except Exception as se:
                     logger.debug("Scoring failed for property %d: %s", prop.id, se)
             db.commit()
-            logger.info("Auto-scoring complete: %d properties scored", len(props))
-            _db_log(db, source_id, run_id, 'info', f'Scoring complete: {len(props)} properties scored')
+            _db_log(db, source_id, run_id, 'info', f'Scoring complete: {len(props)} properties')
         except Exception as se:
             logger.warning("Auto-scoring failed: %s", se)
             _db_log(db, source_id, run_id, 'warning', f'Scoring failed: {se}')
+
+        # --- Step 2: PropertyData enrichment for new high-scoring properties ---
+        PD_ENRICH_THRESHOLD = 60.0
+        try:
+            pd_service = get_pd_service()
+            enrich_candidates = (
+                db.query(Property, PropertyScore)
+                .join(PropertyScore, PropertyScore.property_id == Property.id)
+                .filter(
+                    Property.id.in_(new_property_ids),
+                    PropertyScore.investment_score >= PD_ENRICH_THRESHOLD,
+                    PropertyScore.pd_enriched_at.is_(None),
+                )
+                .order_by(PropertyScore.investment_score.desc())
+                .limit(20)
+                .all()
+            )
+            if enrich_candidates:
+                _db_log(db, source_id, run_id, 'info',
+                        f'PropertyData: enriching {len(enrich_candidates)} high-scoring new properties…')
+            enriched_count = 0
+            for prop, score in enrich_candidates:
+                try:
+                    ok = pd_service.enrich(prop, score, db)
+                    if ok:
+                        result = scorer.score_property(prop, existing_score=score)
+                        save_score(db, prop, result)
+                        enriched_count += 1
+                except Exception as pe:
+                    logger.debug("PD enrichment failed for property %d: %s", prop.id, pe)
+            if enriched_count:
+                db.commit()
+                _db_log(db, source_id, run_id, 'info',
+                        f'PropertyData enrichment complete: {enriched_count} properties enriched')
+        except Exception as pe:
+            logger.warning("PropertyData enrichment step failed: %s", pe)
+
+        # --- Step 3: AI analysis for top new properties (score >= 70, no existing insight) ---
+        AI_ANALYSIS_THRESHOLD = 70.0
+        AI_MAX_PER_RUN = 10
+        try:
+            ai_candidates = (
+                db.query(Property)
+                .join(PropertyScore, PropertyScore.property_id == Property.id)
+                .outerjoin(PropertyAIInsight, PropertyAIInsight.property_id == Property.id)
+                .filter(
+                    Property.id.in_(new_property_ids),
+                    PropertyScore.investment_score >= AI_ANALYSIS_THRESHOLD,
+                    PropertyAIInsight.id.is_(None),
+                )
+                .order_by(PropertyScore.investment_score.desc())
+                .limit(AI_MAX_PER_RUN)
+                .all()
+            )
+            if ai_candidates:
+                _db_log(db, source_id, run_id, 'info',
+                        f'AI: analysing {len(ai_candidates)} top-scoring new properties…')
+            ai_count = 0
+            for prop in ai_candidates:
+                try:
+                    analyse_property(prop.id, db)
+                    ai_count += 1
+                except Exception as ae:
+                    logger.debug("AI analysis failed for property %d: %s", prop.id, ae)
+            if ai_count:
+                _db_log(db, source_id, run_id, 'info',
+                        f'AI analysis complete: {ai_count} properties analysed')
+        except Exception as ae:
+            logger.warning("AI analysis step failed: %s", ae)
 
     except Exception as e:
         logger.error("Scraper error for source %s: %s", source_id, e)
