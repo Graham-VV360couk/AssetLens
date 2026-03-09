@@ -55,7 +55,7 @@ def _run_scoring_job(property_ids: list = None):
         db.close()
 
 
-def _run_enrichment_job(min_score: float = 40.0, limit: int = 50):
+def _run_enrichment_job(min_score: float = 60.0, limit: int = 50):
     """Enrich properties with PropertyData.co.uk AVM and rental data.
 
     Only enriches properties that:
@@ -111,7 +111,7 @@ def trigger_scoring(background_tasks: BackgroundTasks):
 @router.post('/enrich')
 def trigger_enrichment(
     background_tasks: BackgroundTasks,
-    min_score: float = 40.0,
+    min_score: float = 60.0,
     limit: int = 50,
 ):
     """Enrich top-scoring properties with PropertyData AVM + rental estimates.
