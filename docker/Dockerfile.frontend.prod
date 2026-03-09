@@ -15,8 +15,7 @@ RUN npm install --omit=dev
 COPY frontend/ .
 
 # Build production bundle
-ARG REACT_APP_API_URL=/api
-ENV REACT_APP_API_URL=${REACT_APP_API_URL}
+# Leave REACT_APP_API_URL unset so API calls use relative paths (nginx proxies /api/* to backend)
 RUN npm run build
 
 # Stage 2: Serve with nginx

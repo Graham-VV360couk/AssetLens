@@ -6,9 +6,9 @@
 import axios from 'axios';
 
 // API Base URL Configuration
-// In production: API is proxied via nginx at /api
-// In development: Use localhost:8000
-const API_BASE_URL = process.env.REACT_APP_API_URL ?? 'http://localhost:8000';
+// In production: empty string — all /api/... paths are relative to the same origin (nginx proxies)
+// In development: set REACT_APP_API_URL=http://localhost:8000 in .env.local
+const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 
 console.log('API Base URL:', API_BASE_URL);
 
