@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from backend.api.dependencies import get_db
 from backend.models.property import Property
 from backend.models.auction import Auction
-from backend.models.scraper_source import ScraperSource
+from backend.models.scraper_source import ScraperSource, ScraperStrategyLibrary
 from backend.services.scoring_service import PropertyScoringService, save_score
 
 logger = logging.getLogger(__name__)
@@ -29,6 +29,93 @@ HEADERS = {
     'Accept-Language': 'en-GB,en;q=0.5',
 }
 RATE_LIMIT = 2.0
+
+# ---------------------------------------------------------------------------
+# PROBE_REGISTRY — built-in strategies to try automatically when auto-detection
+# fails. Each entry defines how to test and how to build a strategy dict.
+# probe_id keys are stored in scraper_strategy_library for success tracking.
+# ---------------------------------------------------------------------------
+def _q(url: str, param: str) -> str:
+    """Append a query param to a URL cleanly."""
+    return url + ('&' if '?' in url else '?') + param
+
+PROBE_REGISTRY = {
+    # --- All-results URL probes (single page, no pagination needed) ---
+    'allresults_size_500': {
+        'name': 'All results (size=500)',
+        'description': 'Append ?size=500 to return all listings on one page',
+        'type': 'all_results_url',
+        'test_url': lambda u: _q(u, 'size=500'),
+        'strategy': lambda u: {'type': 'all_results_url', 'all_results_url': _q(u, 'size=500')},
+    },
+    'allresults_per_page_500': {
+        'name': 'All results (per_page=500)',
+        'description': 'Append ?per_page=500 to return all listings on one page',
+        'type': 'all_results_url',
+        'test_url': lambda u: _q(u, 'per_page=500'),
+        'strategy': lambda u: {'type': 'all_results_url', 'all_results_url': _q(u, 'per_page=500')},
+    },
+    'allresults_limit_500': {
+        'name': 'All results (limit=500)',
+        'description': 'Append ?limit=500 to return all listings on one page',
+        'type': 'all_results_url',
+        'test_url': lambda u: _q(u, 'limit=500'),
+        'strategy': lambda u: {'type': 'all_results_url', 'all_results_url': _q(u, 'limit=500')},
+    },
+    'allresults_count_500': {
+        'name': 'All results (count=500)',
+        'description': 'Append ?count=500 to return all listings on one page',
+        'type': 'all_results_url',
+        'test_url': lambda u: _q(u, 'count=500'),
+        'strategy': lambda u: {'type': 'all_results_url', 'all_results_url': _q(u, 'count=500')},
+    },
+    # --- Pagination template probes (test page 2, derive template) ---
+    'query_page': {
+        'name': 'Query param (?page=N)',
+        'description': 'Generic ?page=N query parameter pagination',
+        'type': 'pagination_template',
+        'test_url': lambda u: _q(u, 'page=2'),
+        'strategy': lambda u: {'type': 'pagination_template', 'pagination_template': {
+            'template': _q(u, 'page={page}'), 'start_page': 1, 'step': 1, 'sample_pages': [2],
+        }},
+    },
+    'query_paged': {
+        'name': 'Query param (?paged=N)',
+        'description': 'WordPress-style ?paged=N pagination',
+        'type': 'pagination_template',
+        'test_url': lambda u: _q(u, 'paged=2'),
+        'strategy': lambda u: {'type': 'pagination_template', 'pagination_template': {
+            'template': _q(u, 'paged={page}'), 'start_page': 1, 'step': 1, 'sample_pages': [2],
+        }},
+    },
+    'wp_page_path': {
+        'name': 'WordPress /page/N/ path',
+        'description': 'WordPress /page/N/ URL path pagination',
+        'type': 'pagination_template',
+        'test_url': lambda u: u.rstrip('/') + '/page/2/',
+        'strategy': lambda u: {'type': 'pagination_template', 'pagination_template': {
+            'template': u.rstrip('/') + '/page/{page}/', 'start_page': 1, 'step': 1, 'sample_pages': [2],
+        }},
+    },
+    'numbered_path': {
+        'name': 'Numbered path segment (/N/)',
+        'description': 'URL path ends with a page number: /listings/2/',
+        'type': 'pagination_template',
+        'test_url': lambda u: u.rstrip('/') + '/2/',
+        'strategy': lambda u: {'type': 'pagination_template', 'pagination_template': {
+            'template': u.rstrip('/') + '/{page}/', 'start_page': 1, 'step': 1, 'sample_pages': [2],
+        }},
+    },
+    'query_offset_20': {
+        'name': 'Offset pagination (?offset=N, step 20)',
+        'description': 'Pagination by offset: ?offset=20, ?offset=40, etc.',
+        'type': 'pagination_template',
+        'test_url': lambda u: _q(u, 'offset=20'),
+        'strategy': lambda u: {'type': 'pagination_template', 'pagination_template': {
+            'template': _q(u, 'offset={page}'), 'start_page': 0, 'step': 20, 'sample_pages': [20],
+        }},
+    },
+}
 
 
 # --- Schemas ---
@@ -81,6 +168,94 @@ class ScraperSourceResponse(BaseModel):
 
 
 # --- Helpers ---
+
+def _record_probe(db, probe_id: str, domain: str, success: bool):
+    """Upsert a success/fail count for a probe+domain pair in the library."""
+    entry = db.query(ScraperStrategyLibrary).filter(
+        ScraperStrategyLibrary.probe_id == probe_id,
+        ScraperStrategyLibrary.domain == domain,
+    ).first()
+    if not entry:
+        entry = ScraperStrategyLibrary(
+            probe_id=probe_id, domain=domain,
+            created_at=datetime.utcnow(), updated_at=datetime.utcnow(),
+        )
+        db.add(entry)
+    if success:
+        entry.success_count = (entry.success_count or 0) + 1
+        entry.last_success_at = datetime.utcnow()
+    else:
+        entry.fail_count = (entry.fail_count or 0) + 1
+    entry.updated_at = datetime.utcnow()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+def _try_library_probes(source_url: str, session: requests.Session, db) -> Optional[dict]:
+    """
+    Try probes from PROBE_REGISTRY, ordered by global success rate.
+    Skips probes that have failed this domain > 3 times with 0 successes.
+    Returns a strategy dict (ready to store in investigation_data['strategy'])
+    if a probe finds >= 3 property cards on the test page, else None.
+    """
+    domain = urlparse(source_url).netloc.lower()
+
+    # Load library stats for this domain
+    domain_entries = {
+        e.probe_id: e for e in
+        db.query(ScraperStrategyLibrary)
+        .filter(ScraperStrategyLibrary.domain == domain).all()
+    }
+    global_entries = {
+        e.probe_id: e for e in
+        db.query(ScraperStrategyLibrary)
+        .filter(ScraperStrategyLibrary.domain == None).all()
+    }
+
+    def probe_sort_key(probe_id):
+        if probe_id in domain_entries and domain_entries[probe_id].success_count > 0:
+            return (0, -domain_entries[probe_id].success_count)  # domain hit first
+        if probe_id in global_entries and global_entries[probe_id].success_count > 0:
+            return (1, -global_entries[probe_id].success_count)  # global hit second
+        return (2, 0)  # untried last
+
+    ordered = sorted(PROBE_REGISTRY.keys(), key=probe_sort_key)
+
+    for probe_id in ordered:
+        # Skip probes that have repeatedly failed this domain
+        e = domain_entries.get(probe_id)
+        if e and e.fail_count >= 3 and (e.success_count or 0) == 0:
+            continue
+
+        probe = PROBE_REGISTRY[probe_id]
+        try:
+            test_url = probe['test_url'](source_url)
+            logger.debug("Library probe '%s' → %s", probe_id, test_url)
+            soup = _scrape_page(test_url, session)
+            if not soup:
+                _record_probe(db, probe_id, domain, success=False)
+                continue
+
+            listings = _extract_listings(soup, test_url)
+            if len(listings) >= 3:
+                strategy = probe['strategy'](source_url)
+                strategy['confirmed_by'] = f'library:{probe_id}'
+                strategy['confirmed_at'] = datetime.utcnow().isoformat()
+                strategy['probe_name'] = probe['name']
+                _record_probe(db, probe_id, domain, success=True)
+                logger.info("Library probe '%s' succeeded for %s (%d listings)", probe_id, domain, len(listings))
+                return strategy
+            else:
+                _record_probe(db, probe_id, domain, success=False)
+
+        except Exception as exc:
+            logger.debug("Library probe '%s' error for %s: %s", probe_id, domain, exc)
+            _record_probe(db, probe_id, domain, success=False)
+
+    return None
+
 
 def _derive_pagination_pattern(urls: List[str]) -> Optional[dict]:
     """
@@ -786,6 +961,37 @@ def _investigate_site(source_id: int):
                 findings['pagination'] = {'type': 'unknown', 'detected': False,
                                            'max_pages_recommended': 1}
 
+        # --- Try library probes when standard detection found few or no cards ---
+        # (i.e. site may need ?size=500, different pagination param, etc.)
+        existing_strategy = None
+        try:
+            existing_inv = json.loads(source.investigation_data or '{}')
+            existing_strategy = existing_inv.get('strategy')
+        except Exception:
+            pass
+
+        if not existing_strategy and card_count < 5:
+            logger.info("Few cards found (%d) for %s — trying library probes", card_count, source.name)
+            auto_strategy = _try_library_probes(source.url, session, db)
+            if auto_strategy:
+                findings['strategy'] = auto_strategy
+                findings['recommendations'].insert(0,
+                    f'Auto-configured via library probe "{auto_strategy.get("probe_name", "")}" — '
+                    f'no manual hint needed.'
+                )
+                # Update card count summary to reflect probe success
+                probe_type = auto_strategy.get('type', '')
+                if probe_type == 'all_results_url':
+                    findings['summary'] = f'Auto-configured: all-results URL via {auto_strategy.get("probe_name")}.'
+                else:
+                    tmpl = auto_strategy.get('pagination_template', {})
+                    findings['summary'] = f'Auto-configured: pagination template via {auto_strategy.get("probe_name")}.'
+            else:
+                findings['recommendations'].append(
+                    'Could not auto-configure — open the analysis panel and use "Help configure scraping" '
+                    'to provide a sample page URL or an all-results URL.'
+                )
+
         findings['summary'] = (
             f"Found {card_count} property cards on first page. "
             f"Pagination: {findings['pagination'].get('type', 'unknown')}. "
@@ -1126,5 +1332,77 @@ def save_hint(source_id: int, hint: ScraperHint, db: Session = Depends(get_db)):
     inv_data['strategy'] = strategy
     source.investigation_data = json.dumps(inv_data)
     db.commit()
+
+    # Record this as a success in the library so future sites benefit
+    domain = urlparse(source.url).netloc.lower()
+    probe_id = _match_strategy_to_probe(strategy, source.url)
+    if probe_id:
+        _record_probe(db, probe_id, domain, success=True)
+        _record_probe(db, probe_id, None, success=True)  # global count too
+
     db.refresh(source)
     return source
+
+
+def _match_strategy_to_probe(strategy: dict, source_url: str) -> Optional[str]:
+    """Try to match a user-provided strategy back to a known probe_id."""
+    if not strategy:
+        return None
+    stype = strategy.get('type')
+    if stype == 'all_results_url':
+        url = strategy.get('all_results_url', '')
+        if 'size=500' in url:
+            return 'allresults_size_500'
+        if 'per_page=500' in url:
+            return 'allresults_per_page_500'
+        if 'limit=500' in url:
+            return 'allresults_limit_500'
+        if 'count=500' in url:
+            return 'allresults_count_500'
+    if stype == 'pagination_template':
+        tmpl = strategy.get('pagination_template', {}).get('template', '')
+        if '/page/{page}/' in tmpl:
+            return 'wp_page_path'
+        if '/{page}/' in tmpl and tmpl.count('/') > 4:
+            return 'numbered_path'
+        if 'page={page}' in tmpl:
+            return 'query_page'
+        if 'paged={page}' in tmpl:
+            return 'query_paged'
+        if 'offset={page}' in tmpl:
+            return 'query_offset_20'
+    return None
+
+
+@router.get('/library')
+def get_library(db: Session = Depends(get_db)):
+    """Return the strategy library — all known probes with their success/fail stats."""
+    entries = db.query(ScraperStrategyLibrary).order_by(
+        ScraperStrategyLibrary.success_count.desc()
+    ).all()
+
+    # Group by probe_id, aggregating across domains
+    from collections import defaultdict
+    by_probe = defaultdict(lambda: {'success_count': 0, 'fail_count': 0, 'domains': []})
+    for e in entries:
+        by_probe[e.probe_id]['success_count'] += e.success_count or 0
+        by_probe[e.probe_id]['fail_count'] += e.fail_count or 0
+        if e.domain:
+            by_probe[e.probe_id]['domains'].append(e.domain)
+
+    result = []
+    for probe_id, probe in PROBE_REGISTRY.items():
+        stats = by_probe.get(probe_id, {'success_count': 0, 'fail_count': 0, 'domains': []})
+        result.append({
+            'probe_id': probe_id,
+            'name': probe['name'],
+            'description': probe['description'],
+            'type': probe['type'],
+            'success_count': stats['success_count'],
+            'fail_count': stats['fail_count'],
+            'domains': stats['domains'][:5],  # cap for display
+        })
+
+    # Sort: most successful first, then alphabetical
+    result.sort(key=lambda x: (-x['success_count'], x['name']))
+    return result

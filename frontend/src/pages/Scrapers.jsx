@@ -459,6 +459,108 @@ function InvestigationPanel({ source, onInvestigate, onSourceUpdated }) {
   );
 }
 
+function StrategyLibraryPanel() {
+  const [open, setOpen] = useState(false);
+  const [library, setLibrary] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const data = await scrapersApi.getLibrary();
+      setLibrary(data);
+    } catch { /* silent */ }
+    finally { setLoading(false); }
+  };
+
+  const toggle = () => {
+    setOpen(o => !o);
+    if (!open && !library) load();
+  };
+
+  const typeColour = (type) => type === 'all_results_url'
+    ? 'text-blue-400 bg-blue-400/10'
+    : 'text-purple-400 bg-purple-400/10';
+  const typeLabel = (type) => type === 'all_results_url' ? 'Single page' : 'Pagination';
+
+  return (
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+      <button
+        onClick={toggle}
+        className="w-full flex items-center justify-between px-5 py-4 hover:bg-slate-800/30 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <BookOpen size={16} className="text-teal-400" />
+          <span className="text-sm font-semibold text-slate-300">Strategy Library</span>
+          {library && (
+            <span className="text-xs text-slate-500 font-normal ml-1">
+              — {library.filter(p => p.success_count > 0).length} proven patterns
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-600">Patterns tried automatically when scraping a new site</span>
+          {open ? <ChevronUp size={14} className="text-slate-500" /> : <ChevronDown size={14} className="text-slate-500" />}
+        </div>
+      </button>
+
+      {open && (
+        <div className="border-t border-slate-800 px-5 py-4">
+          {loading && (
+            <div className="flex items-center gap-2 text-slate-500 text-sm py-4 justify-center">
+              <RefreshCw size={14} className="animate-spin" /> Loading…
+            </div>
+          )}
+          {library && (
+            <div className="space-y-2">
+              <p className="text-xs text-slate-500 mb-3">
+                When a new site is added and auto-detection finds fewer than 5 properties, these probes are tried automatically in order of past success. Confirmed hints and successful scrapes add to the counts.
+              </p>
+              <div className="grid gap-2">
+                {library.map(probe => (
+                  <div key={probe.probe_id}
+                    className={clsx(
+                      'flex items-center gap-3 rounded-xl px-3 py-2.5 border',
+                      probe.success_count > 0
+                        ? 'border-slate-700 bg-slate-800/50'
+                        : 'border-slate-800 bg-slate-900/50 opacity-60'
+                    )}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-white text-xs font-medium">{probe.name}</span>
+                        <span className={clsx('text-xs px-1.5 py-0.5 rounded font-medium', typeColour(probe.type))}>
+                          {typeLabel(probe.type)}
+                        </span>
+                        {probe.domains.length > 0 && (
+                          <span className="text-slate-600 text-xs" title={probe.domains.join(', ')}>
+                            {probe.domains[0]}{probe.domains.length > 1 ? ` +${probe.domains.length - 1}` : ''}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-slate-600 text-xs mt-0.5">{probe.description}</p>
+                    </div>
+                    <div className="text-right shrink-0 min-w-[70px]">
+                      {probe.success_count > 0 ? (
+                        <>
+                          <div className="text-emerald-400 text-sm font-semibold">{probe.success_count} ✓</div>
+                          {probe.fail_count > 0 && <div className="text-slate-600 text-xs">{probe.fail_count} ✗</div>}
+                        </>
+                      ) : (
+                        <span className="text-slate-700 text-xs">untried</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const EMPTY_FORM = { name: '', url: '', source_type: 'auction', max_pages: 5, notes: '', scrape_detail_pages: false };
 
 export default function Scrapers() {
@@ -813,6 +915,9 @@ export default function Scrapers() {
           </div>
         )}
       </div>
+
+      {/* Strategy Library */}
+      <StrategyLibraryPanel />
 
       {/* Info box */}
       <div className="flex items-start gap-3 bg-slate-900/50 border border-slate-800 rounded-xl p-4">
