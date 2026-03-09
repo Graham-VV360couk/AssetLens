@@ -64,7 +64,9 @@ def scrape_status():
 
 
 def _db_log(db: Session, source_id: int, run_id: str, level: str, message: str, run_type: str = 'scrape'):
-    """Write a log line to the DB. Commits immediately so it's visible during long runs."""
+    """Write a log line to the DB using an isolated session so failures never corrupt the caller's session."""
+    from backend.models.base import SessionLocal
+    _log_db = SessionLocal()
     try:
         entry = ScraperRunLog(
             source_id=source_id,
@@ -74,13 +76,15 @@ def _db_log(db: Session, source_id: int, run_id: str, level: str, message: str, 
             message=message[:2000],
             created_at=datetime.utcnow(),
         )
-        db.add(entry)
-        db.commit()
+        _log_db.add(entry)
+        _log_db.commit()
     except Exception:
         try:
-            db.rollback()
+            _log_db.rollback()
         except Exception:
             pass
+    finally:
+        _log_db.close()
 
 HEADERS = {
     'User-Agent': 'AssetLens/1.0 (property investment research; contact@assetlens.co.uk)',
@@ -1306,6 +1310,7 @@ def _run_scraper(source_id: int):
         first_save_error = None
 
         for listing in all_listings:
+            sp = None
             try:
                 sp = db.begin_nested()
                 postcode = (listing.get('postcode') or '')[:10].strip()
@@ -1406,7 +1411,11 @@ def _run_scraper(source_id: int):
 
                 sp.commit()
             except Exception as e:
-                sp.rollback()
+                if sp is not None:
+                    try:
+                        sp.rollback()
+                    except Exception:
+                        pass
                 err_msg = str(e)[:200]
                 logger.warning("Error saving listing %s: %s", listing.get('address', '?'), err_msg)
                 if first_save_error is None:
