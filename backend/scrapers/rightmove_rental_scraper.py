@@ -1,14 +1,14 @@
 """
-OpenRent whole-property rental scraper.
-OpenRent is a JS SPA — raw HTML has no listings, so we use Playwright.
+Rightmove whole-property rental scraper.
 
-Check robots.txt / ToS before running in production. OpenRent does not explicitly
-prohibit scraping for non-commercial research in the way Rightmove does, but use
-responsibly: rate-limit requests and identify your client.
+Rightmove prohibits scraping in its ToS — use only for authorised research/testing.
+Two-step approach:
+  1. Resolve postcode district → Rightmove OUTCODE ID via their typeahead API (plain HTTP).
+  2. Fetch rental search pages with Playwright (JS-rendered results).
 
 Run:
-    python -m backend.scrapers.openrent_scraper NG1 NG2 NG7 --pages 3
-    python -m backend.scrapers.openrent_scraper --districts-from-db --pages 5
+    python -m backend.scrapers.rightmove_rental_scraper NG1 NG7 LS1 --pages 3
+    python -m backend.scrapers.rightmove_rental_scraper --districts-from-db --pages 5
 """
 import asyncio
 import logging
@@ -19,6 +19,7 @@ import sys
 from datetime import date
 from typing import Optional
 
+import requests
 from sqlalchemy.orm import Session
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -30,6 +31,15 @@ from backend.models.property import Property
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 logger = logging.getLogger(__name__)
 
+HEADERS = {
+    'User-Agent': (
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+        'AppleWebKit/537.36 (KHTML, like Gecko) '
+        'Chrome/120.0.0.0 Safari/537.36'
+    ),
+    'Accept-Language': 'en-GB,en;q=0.9',
+}
+
 
 def _parse_price(text: str) -> Optional[float]:
     if not text:
@@ -39,7 +49,8 @@ def _parse_price(text: str) -> Optional[float]:
     if not m:
         return None
     price = float(m.group(0))
-    if re.search(r'p[. ]?c[. ]?w|per week|/week', text, re.IGNORECASE):
+    # pcm / per month already; convert pw → pcm
+    if re.search(r'p[. ]?w|per week|/week', text, re.IGNORECASE):
         price = price * 52 / 12
     return price
 
@@ -49,48 +60,71 @@ def _extract_postcode(text: str) -> str:
     return m.group(1).upper().strip() if m else ''
 
 
-class OpenRentScraper:
+class RightmoveRentalScraper:
     """
-    Scrapes OpenRent.co.uk for whole-property to-rent listings using Playwright.
-    OpenRent is a JS SPA — requests/BeautifulSoup returns no listings.
+    Scrapes Rightmove property-to-rent search using Playwright.
+    Resolves district → OUTCODE ID via typeahead, then paginates results.
     """
-    BASE = 'https://www.openrent.co.uk'
-    SEARCH = BASE + '/properties-to-rent/'
+    TYPEAHEAD = 'https://api.rightmove.co.uk/api/sell/v2/typeahead'
+    SEARCH = 'https://www.rightmove.co.uk/property-to-rent/find.html'
+    BASE = 'https://www.rightmove.co.uk'
+
+    def resolve_location_id(self, district: str) -> Optional[str]:
+        """Get Rightmove OUTCODE identifier for a postcode district."""
+        try:
+            r = requests.get(
+                self.TYPEAHEAD,
+                params={'apiApplication': 'FIND_A_PROPERTY', 'query': district},
+                headers=HEADERS,
+                timeout=10,
+            )
+            r.raise_for_status()
+            locs = r.json().get('typeAheadLocations', [])
+            for loc in locs:
+                ident = loc.get('locationIdentifier', '')
+                if 'OUTCODE' in ident:
+                    logger.debug('Resolved %s → %s', district, ident)
+                    return ident
+        except Exception as e:
+            logger.warning('Typeahead lookup failed for %s: %s', district, e)
+        return None
 
     async def scrape_district(self, district: str, max_pages: int = 5) -> list[dict]:
-        """Scrape all listings in a postcode district (e.g. 'NG1')."""
+        """Scrape rental listings for a postcode district (e.g. 'NG1')."""
+        loc_id = self.resolve_location_id(district)
+        if not loc_id:
+            logger.warning('Could not resolve Rightmove location ID for %s — skipping', district)
+            return []
+
         from playwright.async_api import async_playwright
         listings = []
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             page = await browser.new_page()
-            await page.set_extra_http_headers({
-                'User-Agent': (
-                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                    'AppleWebKit/537.36 (KHTML, like Gecko) '
-                    'Chrome/120.0.0.0 Safari/537.36'
-                ),
-            })
+            await page.set_extra_http_headers(HEADERS)
             try:
-                for pg in range(1, max_pages + 1):
-                    url = f"{self.SEARCH}?term={district}&isLive=1&page={pg}"
+                for pg in range(max_pages):
+                    url = (
+                        f"{self.SEARCH}"
+                        f"?locationIdentifier={loc_id}"
+                        f"&sortType=2"
+                        f"&index={pg * 24}"
+                        f"&propertyTypes=&mustHave=&dontShow=&furnishTypes=&keywords="
+                    )
                     try:
                         await page.goto(url, wait_until='networkidle', timeout=30000)
                     except Exception as e:
-                        logger.warning('OpenRent navigation failed for %s page %d: %s', district, pg, e)
+                        logger.warning('Rightmove navigation failed for %s page %d: %s', district, pg + 1, e)
                         break
 
-                    # Try multiple selectors — OpenRent changes its markup periodically
                     cards = await page.query_selector_all(
-                        '.property-listing, [data-property-id], '
-                        'li.listing, div.listing, article[data-listing-id]'
+                        '[data-test="property-result"], '
+                        'div.l-searchResult, '
+                        'article.propertyCard'
                     )
-                    # Fallback: anchor cards linking to /property/
-                    if not cards:
-                        cards = await page.query_selector_all('a[href*="/property/"]')
 
                     if not cards:
-                        logger.info('OpenRent %s page %d: no listings found, stopping', district, pg)
+                        logger.info('Rightmove %s page %d: no listings found, stopping', district, pg + 1)
                         break
 
                     for card in cards:
@@ -101,7 +135,7 @@ class OpenRentScraper:
                         except Exception as e:
                             logger.debug('Parse error: %s', e)
 
-                    logger.info('OpenRent %s page %d: %d total so far', district, pg, len(listings))
+                    logger.info('Rightmove %s page %d: %d total so far', district, pg + 1, len(listings))
                     await asyncio.sleep(random.uniform(2, 4))
             finally:
                 await browser.close()
@@ -110,9 +144,12 @@ class OpenRentScraper:
     async def _parse_card(self, card, fallback_district: str) -> Optional[dict]:
         text = await card.inner_text()
 
-        # Rent — look for £NNN pattern
-        rent_el = await card.query_selector('.price, .rent, [class*="price"], [class*="rent"], strong')
-        rent_text = (await rent_el.inner_text()) if rent_el else ''
+        # Rent
+        price_el = await card.query_selector(
+            '[data-test="property-price"], .propertyCard-priceValue, '
+            '[class*="price"], [class*="Price"]'
+        )
+        rent_text = (await price_el.inner_text()) if price_el else ''
         if not rent_text:
             m = re.search(r'£[\d,]+', text)
             rent_text = m.group(0) if m else ''
@@ -121,7 +158,10 @@ class OpenRentScraper:
             return None
 
         # Bedrooms
-        beds_el = await card.query_selector('[class*="bed"], [data-beds]')
+        beds_el = await card.query_selector(
+            '[data-test="property-beds"], .propertyCard-bedroomNumber, '
+            '[class*="bedroom"], [class*="Bedroom"]'
+        )
         beds_text = (await beds_el.inner_text()) if beds_el else text
         beds_m = re.search(r'(\d)\s*(?:bed|bedroom|bd)', beds_text, re.IGNORECASE)
         bedrooms = int(beds_m.group(1)) if beds_m else None
@@ -141,28 +181,24 @@ class OpenRentScraper:
         postcode = _extract_postcode(text) or fallback_district
 
         # Source URL
-        tag = await card.get_attribute('href')
-        if tag and tag.startswith('/property/'):
-            source_url = self.BASE + tag
-        else:
-            link_el = await card.query_selector('a[href*="/property/"]')
-            href = (await link_el.get_attribute('href')) if link_el else None
-            source_url = (self.BASE + href) if href and href.startswith('/') else ''
+        link_el = await card.query_selector('a[href*="/properties/"]')
+        href = (await link_el.get_attribute('href')) if link_el else None
+        source_url = (self.BASE + href) if href and href.startswith('/') else (href or '')
 
         return {
             'postcode': postcode,
             'rent_monthly': rent,
             'bedrooms': bedrooms,
             'property_type': property_type,
-            'source': 'openrent',
+            'source': 'rightmove',
             'source_url': source_url,
             'is_hmo': False,
             'date_listed': date.today(),
         }
 
 
-class OpenRentImporter:
-    """Saves OpenRent listings and creates per-district-bedrooms aggregates."""
+class RightmoveRentalImporter:
+    """Saves Rightmove listings and creates per-district-bedrooms aggregates."""
 
     def __init__(self, db: Session):
         self.db = db
@@ -250,19 +286,18 @@ class OpenRentImporter:
                     is_aggregated=True,
                     is_hmo=False,
                     date_listed=date.today(),
-                    source='openrent_aggregate',
+                    source='rightmove_aggregate',
                 ))
             self.stats['aggregated'] += 1
 
         logger.info(
-            'OpenRent aggregates for %s: %s',
+            'Rightmove aggregates for %s: %s',
             district,
             {str(b) + 'bd': round(sorted(r)[len(r) // 2]) for b, r in by_beds.items()}
         )
 
 
 def get_active_districts(db: Session) -> list[str]:
-    """Return unique postcode districts from active property listings."""
     rows = (
         db.query(Property.postcode)
         .filter(Property.status == 'active', Property.postcode != None, Property.postcode != '')
@@ -281,11 +316,10 @@ def get_active_districts(db: Session) -> list[str]:
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description='Scrape OpenRent for whole-property rental data')
+    parser = argparse.ArgumentParser(description='Scrape Rightmove for whole-property rental data')
     parser.add_argument(
         'districts', nargs='*',
-        help='Postcode districts to scrape (e.g. NG1 NG2 LS1). '
-             'Omit to use --districts-from-db.'
+        help='Postcode districts to scrape (e.g. NG1 NG7 LS1). Omit to use --districts-from-db.'
     )
     parser.add_argument(
         '--districts-from-db', action='store_true',
@@ -296,8 +330,8 @@ def main():
 
     db = SessionLocal()
     try:
-        scraper = OpenRentScraper()
-        importer = OpenRentImporter(db)
+        scraper = RightmoveRentalScraper()
+        importer = RightmoveRentalImporter(db)
 
         districts = list(args.districts)
         if args.districts_from_db or not districts:

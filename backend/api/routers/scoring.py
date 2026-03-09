@@ -1,4 +1,5 @@
 """Property scoring endpoints — trigger scoring job and LR data import."""
+import asyncio
 import logging
 from datetime import datetime
 
@@ -158,6 +159,59 @@ def enrich_property(property_id: int, db: Session = Depends(get_db)):
         "pd_enriched_at": score.pd_enriched_at.isoformat() if score.pd_enriched_at else None,
         "investment_score": score.investment_score,
     }
+
+
+def _run_rental_scrape_job():
+    """Scrape OpenRent + Rightmove for active property districts, then re-score."""
+    from backend.scrapers.openrent_scraper import OpenRentScraper, OpenRentImporter
+    from backend.scrapers.rightmove_rental_scraper import RightmoveRentalScraper, RightmoveRentalImporter
+
+    db = SessionLocal()
+    try:
+        postcodes = (
+            db.query(Property.postcode)
+            .filter(Property.status == 'active', Property.postcode.isnot(None))
+            .distinct()
+            .all()
+        )
+        districts = list({
+            pc[0].split(' ')[0].upper() for pc in postcodes if pc[0]
+        })
+        logger.info("Scraping rental data for %d districts...", len(districts))
+
+        or_scraper = OpenRentScraper()
+        rm_scraper = RightmoveRentalScraper()
+        or_importer = OpenRentImporter(db)
+        rm_importer = RightmoveRentalImporter(db)
+
+        for district in districts:
+            try:
+                listings = asyncio.run(or_scraper.scrape_district(district))
+                or_importer.import_listings(listings)
+            except Exception as e:
+                logger.warning("OpenRent scrape failed for %s: %s", district, e)
+            try:
+                listings = asyncio.run(rm_scraper.scrape_district(district))
+                rm_importer.import_listings(listings)
+            except Exception as e:
+                logger.warning("Rightmove scrape failed for %s: %s", district, e)
+
+        _run_scoring_job()
+        logger.info(
+            "Rental scrape complete. OR: %s  RM: %s",
+            or_importer.stats, rm_importer.stats,
+        )
+    except Exception as e:
+        logger.error("Rental scrape job failed: %s", e)
+    finally:
+        db.close()
+
+
+@router.post('/import-rental-data')
+def trigger_rental_scrape(background_tasks: BackgroundTasks):
+    """Scrape OpenRent + Rightmove for rental data, then re-score all properties."""
+    background_tasks.add_task(_run_rental_scrape_job)
+    return {"message": "Rental data scrape started for all active postcode districts"}
 
 
 @router.get('/status')
