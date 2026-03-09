@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Building2, TrendingUp, Star, Eye, Activity, AlertTriangle, RefreshCw, Zap, Brain } from 'lucide-react';
+import { Building2, TrendingUp, Star, Eye, Activity, AlertTriangle, RefreshCw, Zap, Brain, MapPin } from 'lucide-react';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 import StatCard from '../components/ui/StatCard';
@@ -218,6 +218,20 @@ export default function Dashboard() {
               <div>
                 <div className="text-violet-300 text-sm font-medium">AI Analyse Properties</div>
                 <div className="text-slate-500 text-xs">Claude verdict for top 20 unanalysed (score ≥ 50)</div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => runJob('postcodes', '/api/properties/fix-postcodes?limit=20', 'Postcode fix')}
+              disabled={jobRunning.postcodes}
+              className="w-full flex items-center gap-3 p-3 bg-teal-900/20 hover:bg-teal-900/30 border border-teal-800/40 rounded-xl transition-colors disabled:opacity-50 text-left"
+            >
+              {jobRunning.postcodes
+                ? <MapPin size={16} className="text-teal-400 animate-pulse shrink-0" />
+                : <MapPin size={16} className="text-teal-400 shrink-0" />}
+              <div>
+                <div className="text-teal-300 text-sm font-medium">Fix Missing Postcodes</div>
+                <div className="text-slate-500 text-xs">AI infers postcodes for up to 20 untagged properties</div>
               </div>
             </button>
           </div>

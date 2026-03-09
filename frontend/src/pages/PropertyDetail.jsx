@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import {
   ArrowLeft, MapPin, Bed, Bath, Square, CheckCircle, Circle,
   ExternalLink, Calendar, Building2, AlertTriangle, Brain,
-  ThumbsUp, ThumbsDown, Lightbulb, Play, Droplets, Zap
+  ThumbsUp, ThumbsDown, Lightbulb, Play, Droplets, Zap, Pencil, Check, X
 } from 'lucide-react';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
@@ -13,6 +13,8 @@ import YieldMeter from '../components/ui/YieldMeter';
 import PriceBandBadge from '../components/ui/PriceBandBadge';
 import SalesHistoryChart from '../components/charts/SalesHistoryChart';
 import PriceComparisonChart from '../components/charts/PriceComparisonChart';
+import ComparableSalesTable from '../components/charts/ComparableSalesTable';
+import PriceHistogramChart from '../components/charts/PriceHistogramChart';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 import { formatCurrency, formatYield, propertyTypeIcon } from '../utils/formatters';
 
@@ -267,25 +269,114 @@ function AIInsightPanel({ propertyId, insight: initialInsight }) {
   );
 }
 
+const UK_POSTCODE = /^[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}$/i;
+
+function PostcodeEditor({ propertyId, currentPostcode, onSaved }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const open = () => { setValue(currentPostcode || ''); setEditing(true); };
+  const cancel = () => setEditing(false);
+
+  const save = async () => {
+    const pc = value.trim().toUpperCase();
+    if (!UK_POSTCODE.test(pc)) {
+      toast.error('Enter a valid UK postcode (e.g. NG1 5AB)');
+      return;
+    }
+    setSaving(true);
+    try {
+      const r = await fetch(`/api/properties/${propertyId}/postcode`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ postcode: pc }),
+      });
+      if (!r.ok) { const e = await r.json(); throw new Error(e.detail || 'Failed'); }
+      toast.success('Postcode saved — property re-scored');
+      setEditing(false);
+      onSaved(pc);
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (editing) {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <input
+          autoFocus
+          value={value}
+          onChange={e => setValue(e.target.value.toUpperCase())}
+          onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') cancel(); }}
+          placeholder="e.g. NG1 5AB"
+          maxLength={8}
+          className="bg-slate-800 border border-slate-600 focus:border-emerald-500 text-white text-sm rounded-lg px-2 py-0.5 w-28 outline-none"
+        />
+        <button onClick={save} disabled={saving} className="text-emerald-400 hover:text-emerald-300 disabled:opacity-50">
+          {saving ? <span className="animate-spin inline-block">⟳</span> : <Check size={14} />}
+        </button>
+        <button onClick={cancel} className="text-slate-500 hover:text-slate-300"><X size={14} /></button>
+      </span>
+    );
+  }
+
+  if (currentPostcode) {
+    return (
+      <span className="inline-flex items-center gap-1 group">
+        <span>{currentPostcode}</span>
+        <button onClick={open} className="opacity-0 group-hover:opacity-100 text-slate-600 hover:text-slate-400 transition-opacity">
+          <Pencil size={11} />
+        </button>
+      </span>
+    );
+  }
+
+  return (
+    <button
+      onClick={open}
+      className="inline-flex items-center gap-1 text-amber-400 hover:text-amber-300 border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 rounded-lg px-2 py-0.5 text-xs transition-colors"
+    >
+      <MapPin size={11} /> Add postcode
+    </button>
+  );
+}
+
+
 export default function PropertyDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [property, setProperty] = useState(null);
   const [areaData, setAreaData] = useState(null);
+  const [nationalData, setNationalData] = useState(null);
+  const [comparables, setComparables] = useState(null);
+  const [priceDistribution, setPriceDistribution] = useState(null);
   const [loading, setLoading] = useState(true);
   const [reviewLoading, setReviewLoading] = useState(false);
 
   useEffect(() => {
-    Promise.all([
-      fetch(`/api/properties/${id}`).then(r => r.json()),
-    ])
-      .then(([prop]) => {
+    fetch(`/api/properties/${id}`)
+      .then(r => r.json())
+      .then(prop => {
         setProperty(prop);
         if (prop.postcode) {
-          fetch(`/api/areas/${prop.postcode}/trends`)
-            .then(r => r.ok ? r.json() : null)
-            .then(setAreaData)
-            .catch(() => {});
+          const pc = encodeURIComponent(prop.postcode);
+          const pt = encodeURIComponent(prop.property_type || '');
+          const gp = prop.asking_price || '';
+
+          Promise.allSettled([
+            fetch(`/api/areas/${pc}/trends`).then(r => r.ok ? r.json() : null),
+            fetch(`/api/areas/national/trends`).then(r => r.ok ? r.json() : null),
+            fetch(`/api/areas/${pc}/comparables?property_type=${pt}`).then(r => r.ok ? r.json() : null),
+            fetch(`/api/areas/${pc}/price-distribution?guide_price=${gp}`).then(r => r.ok ? r.json() : null),
+          ]).then(([trends, national, comps, dist]) => {
+            if (trends.value) setAreaData(trends.value);
+            if (national.value) setNationalData(national.value);
+            if (comps.value) setComparables(comps.value);
+            if (dist.value) setPriceDistribution(dist.value);
+          });
         }
       })
       .catch(e => toast.error(e.message))
@@ -343,8 +434,29 @@ export default function PropertyDetail() {
           </div>
           <h1 className="text-xl font-bold text-white leading-snug">{property.address}</h1>
           <div className="flex items-center gap-1.5 mt-1 text-slate-400 text-sm">
-            <MapPin size={14} />
-            <span>{property.postcode}</span>
+            <MapPin size={14} className={property.postcode ? '' : 'text-amber-400'} />
+            <PostcodeEditor
+              propertyId={id}
+              currentPostcode={property.postcode}
+              onSaved={pc => {
+                setProperty(p => ({ ...p, postcode: pc }));
+                // Re-fetch area data now that we have a postcode
+                const enc = encodeURIComponent(pc);
+                const pt = encodeURIComponent(property.property_type || '');
+                const gp = property.asking_price || '';
+                Promise.allSettled([
+                  fetch(`/api/areas/${enc}/trends`).then(r => r.ok ? r.json() : null),
+                  fetch(`/api/areas/national/trends`).then(r => r.ok ? r.json() : null),
+                  fetch(`/api/areas/${enc}/comparables?property_type=${pt}`).then(r => r.ok ? r.json() : null),
+                  fetch(`/api/areas/${enc}/price-distribution?guide_price=${gp}`).then(r => r.ok ? r.json() : null),
+                ]).then(([trends, national, comps, dist]) => {
+                  if (trends.value) setAreaData(trends.value);
+                  if (national.value) setNationalData(national.value);
+                  if (comps.value) setComparables(comps.value);
+                  if (dist.value) setPriceDistribution(dist.value);
+                });
+              }}
+            />
             {property.town && <><span>·</span><span>{property.town}</span></>}
             {property.county && <><span>·</span><span>{property.county}</span></>}
           </div>
@@ -523,27 +635,79 @@ export default function PropertyDetail() {
       {/* AI Analysis Panel */}
       <AIInsightPanel propertyId={id} insight={property.ai_insight} />
 
-      {/* 10-year history chart */}
+      {/* 10-year history chart + volume + national comparison */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.2 }}
         className="bg-slate-900 border border-slate-800 rounded-2xl p-6"
       >
-        <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center justify-between mb-1">
           <div>
             <h2 className="text-white font-semibold">10-Year Price History</h2>
-            <p className="text-slate-500 text-xs mt-0.5">Average sold prices in {property.postcode?.split(' ')[0]}</p>
+            <p className="text-slate-500 text-xs mt-0.5">
+              District avg vs national — bars show annual transaction volume
+            </p>
           </div>
+          {areaData && (
+            <div className="flex items-center gap-4 text-xs text-slate-500">
+              <span className="flex items-center gap-1.5">
+                <span className="w-3 h-0.5 bg-emerald-500 inline-block rounded" /> District
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-3 h-0.5 bg-indigo-400 inline-block rounded border-dashed border-b border-indigo-400" /> National
+              </span>
+            </div>
+          )}
         </div>
         <SalesHistoryChart
           data={areaData?.sales_by_year}
           currentPrice={property.asking_price}
+          nationalData={nationalData}
         />
         <p className="text-slate-600 text-xs mt-3">
           Source: Land Registry Price Paid Data © Crown copyright and database right 2026
         </p>
       </motion.div>
+
+      {/* Price distribution + comparable sales — side by side on wide screens */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Price distribution histogram */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.25 }}
+          className="bg-slate-900 border border-slate-800 rounded-2xl p-6"
+        >
+          <h2 className="text-white font-semibold mb-1">District Price Distribution</h2>
+          <p className="text-slate-500 text-xs mb-4">
+            All sold prices in {property.postcode?.split(' ')[0]} · last 3 years
+            {priceDistribution?.percentile != null && (
+              <span className={`ml-2 font-medium ${priceDistribution.percentile < 30 ? 'text-emerald-400' : priceDistribution.percentile > 70 ? 'text-red-400' : 'text-amber-400'}`}>
+                · Guide at {priceDistribution.percentile}th percentile
+              </span>
+            )}
+          </p>
+          <PriceHistogramChart data={priceDistribution} guidePrice={property.asking_price} />
+        </motion.div>
+
+        {/* Comparable sales table */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          className="bg-slate-900 border border-slate-800 rounded-2xl p-6"
+        >
+          <h2 className="text-white font-semibold mb-1">Comparable Sales</h2>
+          <p className="text-slate-500 text-xs mb-4">
+            Recent {property.property_type || ''} sales in {property.postcode?.split(' ')[0]} · last 3 years
+          </p>
+          <ComparableSalesTable
+            data={comparables}
+            guidePrice={property.asking_price}
+          />
+        </motion.div>
+      </div>
     </div>
   );
 }

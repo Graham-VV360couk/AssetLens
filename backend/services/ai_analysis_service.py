@@ -4,6 +4,7 @@ import logging
 import os
 import time
 from datetime import datetime
+from typing import Optional
 
 from sqlalchemy.orm import Session
 
@@ -161,3 +162,39 @@ def analyse_property(property_id: int, db: Session, _rate_limit_delay: bool = Tr
         'risks': data.get('risks', []),
         'tokens_used': tokens_used,
     }
+
+
+import re as _re
+_POSTCODE_RE = _re.compile(r'\b([A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2})\b', _re.IGNORECASE)
+
+
+def ai_guess_postcode(address: str) -> Optional[str]:
+    """Ask Claude Haiku to infer a UK postcode from a property address.
+
+    Returns a validated postcode string or None if uncertain.
+    Uses the cheapest model and minimal tokens — ~50 tokens per call.
+    """
+    if not address or not ANTHROPIC_API_KEY:
+        return None
+    try:
+        client = _get_client()
+        msg = client.messages.create(
+            model='claude-haiku-4-5-20251001',
+            max_tokens=20,
+            messages=[{
+                'role': 'user',
+                'content': (
+                    f'UK property address: "{address}"\n'
+                    'Reply with ONLY the most likely UK postcode (e.g. NG1 5AB), '
+                    'or reply UNKNOWN if you cannot determine it.'
+                ),
+            }],
+        )
+        reply = (msg.content[0].text or '').strip().upper()
+        if reply == 'UNKNOWN' or not reply:
+            return None
+        m = _POSTCODE_RE.search(reply)
+        return m.group(0).upper() if m else None
+    except Exception as e:
+        logger.warning("ai_guess_postcode failed for %r: %s", address[:60], e)
+        return None

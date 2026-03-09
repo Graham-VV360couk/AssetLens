@@ -38,8 +38,12 @@ ENV/
 .env
 .env.local
 .env.*.local
-# Allow frontend production env (no secrets, just API URL)
+.env.production
+# Allow frontend production env (no secrets, just API URL placeholder)
 !frontend/.env.production
+
+# Playwright MCP
+.playwright-mcp/
 
 # Build output / deploy packages
 deploy/

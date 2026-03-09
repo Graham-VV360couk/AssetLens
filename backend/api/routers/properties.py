@@ -197,3 +197,70 @@ def mark_reviewed(property_id: int, db: Session = Depends(get_db)):
         reviewed_at=prop.reviewed_at,
         message="Marked as reviewed" if prop.is_reviewed else "Review removed",
     )
+
+
+import re as _re
+_POSTCODE_RE = _re.compile(r'^[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}$', _re.IGNORECASE)
+
+
+@router.post('/{property_id}/postcode')
+def set_postcode(property_id: int, body: dict, db: Session = Depends(get_db)):
+    """Save a manually-entered postcode and immediately re-score the property."""
+    postcode = (body.get('postcode') or '').strip().upper()
+    if not postcode or not _POSTCODE_RE.match(postcode):
+        raise HTTPException(status_code=422, detail='Invalid UK postcode format')
+
+    prop = db.query(Property).filter(Property.id == property_id).first()
+    if not prop:
+        raise HTTPException(status_code=404, detail='Property not found')
+
+    prop.postcode = postcode
+    db.commit()
+
+    # Re-score immediately so area stats, valuation and yield use the new postcode
+    from backend.services.scoring_service import PropertyScoringService, save_score
+    from backend.models.property import PropertyScore
+    existing_score = db.query(PropertyScore).filter(PropertyScore.property_id == property_id).first()
+    scorer = PropertyScoringService(db)
+    result = scorer.score_property(prop, existing_score=existing_score)
+    save_score(db, prop.id, result, existing_score=existing_score)
+    db.refresh(prop)
+
+    return {'property_id': prop.id, 'postcode': postcode, 'message': 'Postcode saved and property re-scored'}
+
+
+@router.post('/fix-postcodes')
+def fix_missing_postcodes(
+    limit: int = 20,
+    background_tasks=None,
+    db: Session = Depends(get_db),
+):
+    """Use Claude Haiku to infer postcodes for properties where postcode is blank."""
+    from backend.services.ai_analysis_service import ai_guess_postcode
+
+    props = (
+        db.query(Property)
+        .filter(
+            (Property.postcode == None) | (Property.postcode == ''),
+            Property.status == 'active',
+        )
+        .limit(limit)
+        .all()
+    )
+
+    fixed = []
+    failed = []
+    for prop in props:
+        guessed = ai_guess_postcode(prop.address)
+        if guessed:
+            prop.postcode = guessed
+            db.commit()
+            fixed.append({'id': prop.id, 'address': prop.address[:80], 'postcode': guessed})
+        else:
+            failed.append(prop.id)
+
+    return {
+        'message': f'Fixed {len(fixed)} postcodes, {len(failed)} unresolved',
+        'fixed': fixed,
+        'unresolved_ids': failed,
+    }
