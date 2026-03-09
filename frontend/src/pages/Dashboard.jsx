@@ -75,7 +75,7 @@ export default function Dashboard() {
             value: stats?.high_value_count?.toLocaleString() ?? '—',
             icon: Star,
             color: 'emerald',
-            sub: 'Score ≥ 70',
+            sub: 'Score ≥ 60',
           },
           {
             label: 'Avg. Score',
@@ -238,10 +238,26 @@ export default function Dashboard() {
         </motion.div>
       </div>
 
-      {/* Recent high-value */}
-      {stats?.recent_high_value?.length > 0 && (
+      {/* Properties scoring ≥ 60 — full list, descending */}
+      {stats?.recent_high_value?.length > 0 ? (
         <div>
-          <h2 className="text-white font-semibold mb-4">Top Investment Opportunities</h2>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-white font-semibold">
+                Investment Properties
+                <span className="ml-2 text-sm font-normal text-slate-500">
+                  {stats.high_value_count} scoring ≥ 60
+                </span>
+              </h2>
+              <p className="text-slate-500 text-xs mt-0.5">Sorted by score — best opportunities first</p>
+            </div>
+            <a
+              href="/properties?min_score=60&sort_by=investment_score"
+              className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+            >
+              View all in table →
+            </a>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {stats.recent_high_value.map((prop, i) => (
               <motion.div key={prop.id} custom={i} initial="hidden" animate="visible" variants={cardVariants}>
@@ -249,6 +265,11 @@ export default function Dashboard() {
               </motion.div>
             ))}
           </div>
+        </div>
+      ) : (
+        <div className="text-center py-12 text-slate-600">
+          <p className="text-sm">No properties scoring ≥ 60 yet.</p>
+          <p className="text-xs mt-1">Run a scrape or use the batch actions above to enrich existing properties.</p>
         </div>
       )}
     </div>

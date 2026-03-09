@@ -13,6 +13,7 @@ import requests
 from bs4 import BeautifulSoup
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from backend.api.dependencies import get_db
@@ -1388,17 +1389,57 @@ def _run_scraper(source_id: int):
             logger.warning("Auto-scoring failed: %s", se)
             _db_log(db, source_id, run_id, 'warning', f'Scoring failed: {se}')
 
-        # --- Step 2: PropertyData enrichment for new high-scoring properties ---
+        # --- Step 2: AI analysis for ALL new properties (no score threshold) ---
+        # Claude sees address, asking price, and LR area data — verdict informs Step 3.
+        AI_MAX_PER_RUN = 15
+        ai_analysed_ids = set()
+        try:
+            ai_candidates = (
+                db.query(Property)
+                .join(PropertyScore, PropertyScore.property_id == Property.id)
+                .outerjoin(PropertyAIInsight, PropertyAIInsight.property_id == Property.id)
+                .filter(
+                    Property.id.in_(new_property_ids),
+                    PropertyAIInsight.id.is_(None),
+                )
+                .order_by(PropertyScore.investment_score.desc())
+                .limit(AI_MAX_PER_RUN)
+                .all()
+            )
+            if ai_candidates:
+                _db_log(db, source_id, run_id, 'info',
+                        f'AI: analysing {len(ai_candidates)} new properties…')
+            ai_count = 0
+            for prop in ai_candidates:
+                try:
+                    analyse_property(prop.id, db)
+                    ai_analysed_ids.add(prop.id)
+                    ai_count += 1
+                except Exception as ae:
+                    logger.debug("AI analysis failed for property %d: %s", prop.id, ae)
+            if ai_count:
+                _db_log(db, source_id, run_id, 'info',
+                        f'AI analysis complete: {ai_count} properties analysed')
+        except Exception as ae:
+            logger.warning("AI analysis step failed: %s", ae)
+
+        # --- Step 3: PD enrichment for high performers only ---
+        # Criteria: AI verdict is STRONG_BUY or BUY, OR LR score >= 60.
+        # Runs after AI so the verdict can gate the spend.
         PD_ENRICH_THRESHOLD = 60.0
         try:
             pd_service = get_pd_service()
             enrich_candidates = (
                 db.query(Property, PropertyScore)
                 .join(PropertyScore, PropertyScore.property_id == Property.id)
+                .outerjoin(PropertyAIInsight, PropertyAIInsight.property_id == Property.id)
                 .filter(
                     Property.id.in_(new_property_ids),
-                    PropertyScore.investment_score >= PD_ENRICH_THRESHOLD,
                     PropertyScore.pd_enriched_at.is_(None),
+                    or_(
+                        PropertyScore.investment_score >= PD_ENRICH_THRESHOLD,
+                        PropertyAIInsight.verdict.in_(['STRONG_BUY', 'BUY']),
+                    ),
                 )
                 .order_by(PropertyScore.investment_score.desc())
                 .limit(20)
@@ -1406,7 +1447,7 @@ def _run_scraper(source_id: int):
             )
             if enrich_candidates:
                 _db_log(db, source_id, run_id, 'info',
-                        f'PropertyData: enriching {len(enrich_candidates)} high-scoring new properties…')
+                        f'PropertyData: enriching {len(enrich_candidates)} high-performing new properties…')
             enriched_count = 0
             for prop, score in enrich_candidates:
                 try:
@@ -1423,39 +1464,6 @@ def _run_scraper(source_id: int):
                         f'PropertyData enrichment complete: {enriched_count} properties enriched')
         except Exception as pe:
             logger.warning("PropertyData enrichment step failed: %s", pe)
-
-        # --- Step 3: AI analysis for top new properties (score >= 70, no existing insight) ---
-        AI_ANALYSIS_THRESHOLD = 70.0
-        AI_MAX_PER_RUN = 10
-        try:
-            ai_candidates = (
-                db.query(Property)
-                .join(PropertyScore, PropertyScore.property_id == Property.id)
-                .outerjoin(PropertyAIInsight, PropertyAIInsight.property_id == Property.id)
-                .filter(
-                    Property.id.in_(new_property_ids),
-                    PropertyScore.investment_score >= AI_ANALYSIS_THRESHOLD,
-                    PropertyAIInsight.id.is_(None),
-                )
-                .order_by(PropertyScore.investment_score.desc())
-                .limit(AI_MAX_PER_RUN)
-                .all()
-            )
-            if ai_candidates:
-                _db_log(db, source_id, run_id, 'info',
-                        f'AI: analysing {len(ai_candidates)} top-scoring new properties…')
-            ai_count = 0
-            for prop in ai_candidates:
-                try:
-                    analyse_property(prop.id, db)
-                    ai_count += 1
-                except Exception as ae:
-                    logger.debug("AI analysis failed for property %d: %s", prop.id, ae)
-            if ai_count:
-                _db_log(db, source_id, run_id, 'info',
-                        f'AI analysis complete: {ai_count} properties analysed')
-        except Exception as ae:
-            logger.warning("AI analysis step failed: %s", ae)
 
     except Exception as e:
         logger.error("Scraper error for source %s: %s", source_id, e)

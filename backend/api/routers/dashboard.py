@@ -1,23 +1,29 @@
 """Dashboard statistics endpoint."""
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from backend.api.dependencies import get_db
 from backend.api.schemas import DashboardStats, PropertySummary
 from backend.models.property import Property, PropertyScore
+from backend.models.property_ai_insight import PropertyAIInsight
 
 router = APIRouter(prefix='/api/dashboard', tags=['dashboard'])
 
+HIGH_VALUE_THRESHOLD = 60
+
 
 @router.get('/stats', response_model=DashboardStats)
-def get_dashboard_stats(db: Session = Depends(get_db)):
+def get_dashboard_stats(
+    limit: int = Query(50, le=200),
+    db: Session = Depends(get_db),
+):
     total_active = db.query(func.count(Property.id)).filter(Property.status == 'active').scalar() or 0
     total_reviewed = db.query(func.count(Property.id)).filter(
         Property.status == 'active', Property.is_reviewed == True
     ).scalar() or 0
     high_value = db.query(func.count(PropertyScore.id)).filter(
-        PropertyScore.investment_score >= 55
+        PropertyScore.investment_score >= HIGH_VALUE_THRESHOLD
     ).scalar() or 0
 
     agg = db.query(
@@ -42,14 +48,20 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
     )
     by_property_type = {r[0] or 'unknown': r[1] for r in type_rows}
 
-    # Recent high value properties
-    recent_hv = (
+    # All active properties scoring >= 60, sorted by score descending
+    high_value_props = (
         db.query(Property)
         .join(PropertyScore, Property.id == PropertyScore.property_id)
-        .options(joinedload(Property.score))
-        .filter(PropertyScore.investment_score >= 55)
+        .options(
+            joinedload(Property.score),
+            joinedload(Property.ai_insight),
+        )
+        .filter(
+            Property.status == 'active',
+            PropertyScore.investment_score >= HIGH_VALUE_THRESHOLD,
+        )
         .order_by(PropertyScore.investment_score.desc())
-        .limit(6)
+        .limit(limit)
         .all()
     )
 
@@ -61,5 +73,5 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
         avg_yield=float(agg.avg_yield) if agg and agg.avg_yield else None,
         by_price_band=by_price_band,
         by_property_type=by_property_type,
-        recent_high_value=[PropertySummary.model_validate(p) for p in recent_hv],
+        recent_high_value=[PropertySummary.model_validate(p) for p in high_value_props],
     )
