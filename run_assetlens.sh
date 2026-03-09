@@ -21,10 +21,5 @@ docker run -d \
   -e ALERT_SCORE_THRESHOLD=70 \
   -e ARCHIVE_AFTER_DAYS=180 \
   -e ML_MODEL_PATH=/app/models/valuation_model.pkl \
-  --label "traefik.enable=true" \
-  --label 'traefik.http.routers.assetlens-api.rule=Host(`assetlens-api.geekybee.net`)' \
-  --label "traefik.http.routers.assetlens-api.entrypoints=https" \
-  --label "traefik.http.routers.assetlens-api.tls=true" \
-  --label "traefik.http.routers.assetlens-api.tls.certresolver=letsencrypt" \
-  --label "traefik.http.services.assetlens-api.loadbalancer.server.port=8000" \
+  -e PROPERTYDATA_API_KEY="ZQZUPHWLJI" \
   assetlens-backend

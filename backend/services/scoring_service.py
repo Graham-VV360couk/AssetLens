@@ -53,18 +53,23 @@ class PropertyScoringService:
         self.db = db
         self.valuation_model = PropertyValuationModel()
 
-    def score_property(self, prop: Property) -> ScoringResult:
+    def score_property(self, prop: Property, existing_score: Optional['PropertyScore'] = None) -> ScoringResult:
         area_stats = self._get_area_stats(prop.postcode)
 
-        # 1. ML Valuation
-        estimated_value, confidence = self.valuation_model.predict(
-            address=prop.address,
-            postcode=prop.postcode,
-            property_type=prop.property_type,
-            bedrooms=prop.bedrooms,
-            floor_area_sqm=prop.floor_area_sqm,
-            area_stats=area_stats,
-        )
+        # 1. Valuation — prefer PropertyData AVM over ML statistical model
+        pd_avm = existing_score.pd_avm if existing_score else None
+        if pd_avm and pd_avm > 0:
+            estimated_value = pd_avm
+            confidence = 0.85  # PropertyData AVM is high confidence
+        else:
+            estimated_value, confidence = self.valuation_model.predict(
+                address=prop.address,
+                postcode=prop.postcode,
+                property_type=prop.property_type,
+                bedrooms=prop.bedrooms,
+                floor_area_sqm=prop.floor_area_sqm,
+                area_stats=area_stats,
+            )
 
         # 2. Price deviation
         price_deviation_pct = None
@@ -73,9 +78,13 @@ class PropertyScoringService:
             price_deviation_pct = (prop.asking_price - estimated_value) / estimated_value
             price_score = self._calc_price_score(price_deviation_pct)
 
-        # 3. Rental yield — require a credible asking price (>= £25k) to avoid inflated
-        # yields from auction lot numbers or near-zero guide prices
-        monthly_rent = self._estimate_rent(prop.postcode, prop.property_type, prop.bedrooms)
+        # 3. Rental yield — prefer PropertyData rental estimate over fallback table
+        pd_rental = existing_score.pd_rental_estimate if existing_score else None
+        if pd_rental and pd_rental > 0:
+            monthly_rent = pd_rental
+        else:
+            monthly_rent = self._estimate_rent(prop.postcode, prop.property_type, prop.bedrooms)
+
         gross_yield_pct = None
         yield_score = 10.0  # neutral if no data
         if monthly_rent and prop.asking_price and prop.asking_price >= 25_000:
@@ -89,8 +98,19 @@ class PropertyScoringService:
         # 5. HMO opportunity
         hmo_score = self._calc_hmo_score(prop)
 
-        # 6. Composite score
-        investment_score = price_score + yield_score + area_trend_score + hmo_score
+        # 6. Flood risk penalty (from PropertyData)
+        flood_penalty = 0.0
+        if existing_score:
+            flood_risk = (existing_score.pd_flood_risk or "").lower()
+            if flood_risk == "very high":
+                flood_penalty = 10.0
+            elif flood_risk == "high":
+                flood_penalty = 6.0
+            elif flood_risk == "medium":
+                flood_penalty = 3.0
+
+        # 7. Composite score
+        investment_score = price_score + yield_score + area_trend_score + hmo_score - flood_penalty
 
         # 7. Price band
         price_band = self._classify_price_band(price_deviation_pct)

@@ -133,6 +133,14 @@ class PropertyScore(Base, TimestampMixin):
     # HMO opportunity
     hmo_opportunity_score = Column(Float)  # 0-100 if applicable
 
+    # PropertyData.co.uk enrichment
+    pd_avm = Column(Float)                    # AVM estimate from PropertyData
+    pd_avm_lower = Column(Float)              # AVM range lower bound
+    pd_avm_upper = Column(Float)              # AVM range upper bound
+    pd_rental_estimate = Column(Float)        # Rental estimate from PropertyData
+    pd_flood_risk = Column(String(20))        # low / medium / high / very high
+    pd_enriched_at = Column(DateTime)         # When PropertyData was last called
+
     # Calculation metadata
     calculated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     model_version = Column(String(20))

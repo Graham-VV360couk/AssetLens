@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from backend.api.dependencies import get_db
-from backend.models.property import Property
+from backend.models.property import Property, PropertyScore
 from backend.models.auction import Auction
 from backend.models.scraper_source import ScraperSource, ScraperStrategyLibrary
 from backend.models.scraper_run_log import ScraperRunLog
@@ -1278,7 +1278,8 @@ def _run_scraper(source_id: int):
             props = db.query(Property).filter(Property.status == 'active').all()
             for prop in props:
                 try:
-                    result = scorer.score_property(prop)
+                    existing_score = db.query(PropertyScore).filter(PropertyScore.property_id == prop.id).first()
+                    result = scorer.score_property(prop, existing_score=existing_score)
                     save_score(db, prop, result)
                 except Exception as se:
                     logger.debug("Scoring failed for property %d: %s", prop.id, se)

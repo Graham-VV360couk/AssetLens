@@ -29,6 +29,12 @@ class PropertyScoreSchema(BaseModel):
     investment_score: Optional[float]
     price_band: Optional[str]
     hmo_opportunity_score: Optional[float]
+    pd_avm: Optional[float]
+    pd_avm_lower: Optional[float]
+    pd_avm_upper: Optional[float]
+    pd_rental_estimate: Optional[float]
+    pd_flood_risk: Optional[str]
+    pd_enriched_at: Optional[datetime]
     calculated_at: Optional[datetime]
 
 

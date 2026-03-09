@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import {
   ArrowLeft, MapPin, Bed, Bath, Square, CheckCircle, Circle,
   ExternalLink, Calendar, Building2, AlertTriangle, Brain,
-  ThumbsUp, ThumbsDown, Lightbulb, Play
+  ThumbsUp, ThumbsDown, Lightbulb, Play, Droplets, Zap
 } from 'lucide-react';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
@@ -22,6 +22,115 @@ const VERDICT_STYLE = {
   HOLD:       { bg: 'bg-amber-500/15 border-amber-500/30',     text: 'text-amber-300',   label: 'Hold'       },
   AVOID:      { bg: 'bg-red-500/15 border-red-500/30',         text: 'text-red-300',     label: 'Avoid'      },
 };
+
+const FLOOD_STYLE = {
+  low:       'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
+  medium:    'text-amber-400 bg-amber-500/10 border-amber-500/30',
+  high:      'text-orange-400 bg-orange-500/10 border-orange-500/30',
+  'very high': 'text-red-400 bg-red-500/10 border-red-500/30',
+};
+
+function PropertyDataPanel({ propertyId, score: initialScore }) {
+  const [score, setScore] = useState(initialScore);
+  const [loading, setLoading] = useState(false);
+
+  const enrich = async () => {
+    setLoading(true);
+    try {
+      const r = await fetch(`/api/scoring/enrich/${propertyId}`, { method: 'POST' });
+      if (!r.ok) { const e = await r.json(); throw new Error(e.detail || 'Enrichment failed'); }
+      const data = await r.json();
+      setScore(s => ({ ...s, ...data }));
+      toast.success('PropertyData enrichment complete');
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const enriched = score?.pd_enriched_at;
+  const floodRisk = score?.pd_flood_risk?.toLowerCase();
+  const floodStyle = FLOOD_STYLE[floodRisk] || 'text-slate-400 bg-slate-700/30 border-slate-600/30';
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.12 }}
+      className="bg-slate-900 border border-slate-800 rounded-2xl p-6"
+    >
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Zap size={16} className="text-blue-400" />
+          <h2 className="text-white font-semibold">PropertyData Enrichment</h2>
+          {enriched && (
+            <span className="text-xs text-slate-500">
+              Updated {new Date(enriched).toLocaleDateString('en-GB')}
+            </span>
+          )}
+        </div>
+        <button
+          onClick={enrich}
+          disabled={loading}
+          className="flex items-center gap-1.5 text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
+        >
+          {loading ? <span className="animate-spin">⟳</span> : <Zap size={11} />}
+          {enriched ? 'Re-enrich' : 'Enrich (3 credits)'}
+        </button>
+      </div>
+
+      {!enriched && !loading && (
+        <p className="text-slate-600 text-sm py-3 text-center">
+          Click "Enrich" to fetch live AVM, rental estimate and flood risk from PropertyData.co.uk.
+        </p>
+      )}
+
+      {loading && (
+        <div className="flex items-center gap-2 text-slate-400 text-sm py-3 justify-center">
+          <span className="animate-spin text-blue-400">⟳</span> Fetching from PropertyData…
+        </div>
+      )}
+
+      {enriched && !loading && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="bg-slate-800/50 rounded-xl p-3">
+            <div className="text-slate-500 text-xs mb-1">PD Valuation</div>
+            <div className="text-blue-300 font-bold text-sm">
+              {score.pd_avm ? formatCurrency(score.pd_avm) : '—'}
+            </div>
+            {score.pd_avm_lower && score.pd_avm_upper && (
+              <div className="text-slate-600 text-xs mt-0.5">
+                {formatCurrency(score.pd_avm_lower)} – {formatCurrency(score.pd_avm_upper)}
+              </div>
+            )}
+          </div>
+          <div className="bg-slate-800/50 rounded-xl p-3">
+            <div className="text-slate-500 text-xs mb-1">PD Rent / mo</div>
+            <div className="text-blue-300 font-bold text-sm">
+              {score.pd_rental_estimate ? formatCurrency(score.pd_rental_estimate) : '—'}
+            </div>
+          </div>
+          <div className="bg-slate-800/50 rounded-xl p-3">
+            <div className="text-slate-500 text-xs mb-1">Flood Risk</div>
+            {floodRisk ? (
+              <span className={clsx('inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded border capitalize', floodStyle)}>
+                <Droplets size={10} /> {floodRisk}
+              </span>
+            ) : <span className="text-slate-600 text-sm">—</span>}
+          </div>
+          <div className="bg-slate-800/50 rounded-xl p-3">
+            <div className="text-slate-500 text-xs mb-1">Revised Score</div>
+            <div className="text-white font-bold text-sm">
+              {score.investment_score != null ? `${score.investment_score.toFixed(0)}/100` : '—'}
+            </div>
+          </div>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
 
 function AIInsightPanel({ propertyId, insight: initialInsight }) {
   const [insight, setInsight] = useState(initialInsight || null);
@@ -407,6 +516,9 @@ export default function PropertyDetail() {
           </div>
         </motion.div>
       </div>
+
+      {/* PropertyData Enrichment Panel */}
+      <PropertyDataPanel propertyId={id} score={property.score} />
 
       {/* AI Analysis Panel */}
       <AIInsightPanel propertyId={id} insight={property.ai_insight} />
