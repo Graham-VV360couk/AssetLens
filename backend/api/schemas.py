@@ -109,14 +109,14 @@ class PropertyListResponse(BaseModel):
 
 class AreaStats(BaseModel):
     postcode_district: str
-    avg_price_1yr: Optional[float]
-    avg_price_3yr: Optional[float]
-    avg_price_5yr: Optional[float]
-    avg_price_10yr: Optional[float]
-    growth_pct_10yr: Optional[float]
-    growth_pct_5yr: Optional[float]
-    transaction_count_1yr: Optional[int]
-    transaction_count_10yr: Optional[int]
+    avg_price_1yr: Optional[float] = None
+    avg_price_3yr: Optional[float] = None
+    avg_price_5yr: Optional[float] = None
+    avg_price_10yr: Optional[float] = None
+    growth_pct_10yr: Optional[float] = None
+    growth_pct_5yr: Optional[float] = None
+    transaction_count_1yr: Optional[int] = None
+    transaction_count_10yr: Optional[int] = None
     sales_by_year: List[dict] = []
 
 
