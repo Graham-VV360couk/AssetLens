@@ -17,7 +17,7 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
         Property.status == 'active', Property.is_reviewed == True
     ).scalar() or 0
     high_value = db.query(func.count(PropertyScore.id)).filter(
-        PropertyScore.investment_score >= 70
+        PropertyScore.investment_score >= 55
     ).scalar() or 0
 
     agg = db.query(
@@ -47,7 +47,7 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
         db.query(Property)
         .join(PropertyScore, Property.id == PropertyScore.property_id)
         .options(joinedload(Property.score))
-        .filter(PropertyScore.investment_score >= 70)
+        .filter(PropertyScore.investment_score >= 55)
         .order_by(PropertyScore.investment_score.desc())
         .limit(6)
         .all()

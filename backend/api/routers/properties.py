@@ -111,7 +111,7 @@ def list_properties(
 
 @router.get('/high-value', response_model=PropertyListResponse)
 def get_high_value_properties(
-    min_score: float = 70.0,
+    min_score: float = 55.0,
     page: int = 1,
     page_size: int = 20,
     db: Session = Depends(get_db),
