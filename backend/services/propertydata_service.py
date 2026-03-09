@@ -88,7 +88,7 @@ class PropertyDataService:
         # --- Flood risk ---
         flood = self._flood_risk(postcode)
         if flood:
-            score.pd_flood_risk = flood.get("risk_level", "").lower()
+            score.pd_flood_risk = (flood.get("flood_risk") or flood.get("risk_level") or "").lower()
             success = True
 
         if success:
@@ -117,7 +117,12 @@ class PropertyDataService:
                 r.raise_for_status()
                 body = r.json()
                 if body.get("status") == "success":
-                    return body.get("data", {})
+                    # Some endpoints (e.g. flood-risk) return data at top level,
+                    # others nest it under "data".
+                    return body.get("data") or body
+                if body.get("code") == "X01":
+                    logger.debug("PropertyData /%s not available in current plan", endpoint)
+                    return None
                 logger.debug("PropertyData /%s non-success: %s", endpoint, body.get("message"))
                 return None
             except Exception as exc:
