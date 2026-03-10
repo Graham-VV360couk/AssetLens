@@ -17,6 +17,7 @@ import ComparableSalesTable from '../components/charts/ComparableSalesTable';
 import PriceHistogramChart from '../components/charts/PriceHistogramChart';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 import { formatCurrency, formatYield, propertyTypeIcon } from '../utils/formatters';
+import PropertyProfileCard from '../components/profile/PropertyProfileCard';
 
 class ChartErrorBoundary extends Component {
   state = { error: null };
@@ -664,6 +665,9 @@ export default function PropertyDetail() {
           </div>
         </motion.div>
       </div>
+
+      {/* Property Attribute Profile */}
+      <PropertyProfileCard propertyId={id} />
 
       {/* PropertyData Enrichment Panel */}
       <PropertyDataPanel propertyId={id} score={property.score} />

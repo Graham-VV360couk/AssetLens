@@ -46,6 +46,7 @@ class ScoringResult:
     investment_score: float
     price_band: str
     hmo_opportunity_score: float
+    hmo_gross_yield_pct: Optional[float]
 
 
 class PropertyScoringService:
@@ -54,7 +55,7 @@ class PropertyScoringService:
         self.valuation_model = PropertyValuationModel()
 
     def score_property(self, prop: Property, existing_score: Optional['PropertyScore'] = None) -> ScoringResult:
-        area_stats = self._get_area_stats(prop.postcode)
+        area_stats = self._get_comparable_stats(prop.postcode, prop.property_type, prop.bedrooms)
 
         # 1. Valuation — prefer PropertyData AVM over ML statistical model
         pd_avm = existing_score.pd_avm if existing_score else None
@@ -98,6 +99,14 @@ class PropertyScoringService:
         # 5. HMO opportunity
         hmo_score = self._calc_hmo_score(prop)
 
+        # 5b. HMO yield %
+        hmo_gross_yield_pct = None
+        if prop.bedrooms and prop.bedrooms >= 3 and prop.asking_price and prop.asking_price > 0:
+            district = prop.postcode.split(' ')[0] if prop.postcode and ' ' in prop.postcode else (prop.postcode or '')[:4]
+            room_rent = self._estimate_room_rent(district)
+            if room_rent:
+                hmo_gross_yield_pct = (room_rent * prop.bedrooms * 12) / prop.asking_price * 100
+
         # 6. Flood risk penalty (from PropertyData)
         flood_penalty = 0.0
         if existing_score:
@@ -112,7 +121,7 @@ class PropertyScoringService:
         # 7. Composite score
         investment_score = price_score + yield_score + area_trend_score + hmo_score - flood_penalty
 
-        # 7. Price band
+        # 8. Price band
         price_band = self._classify_price_band(price_deviation_pct)
 
         return ScoringResult(
@@ -129,6 +138,7 @@ class PropertyScoringService:
             investment_score=min(100.0, max(0.0, investment_score)),
             price_band=price_band,
             hmo_opportunity_score=hmo_score,
+            hmo_gross_yield_pct=hmo_gross_yield_pct,
         )
 
     def _calc_price_score(self, deviation: float) -> float:
@@ -260,6 +270,63 @@ class PropertyScoringService:
         #    would give every property the same yield and cluster scores.
         return None
 
+    def _estimate_room_rent(self, district: str) -> Optional[float]:
+        """Median room rent from SpareRoom aggregates for this district."""
+        agg = (
+            self.db.query(Rental)
+            .filter(
+                Rental.postcode == district,
+                Rental.is_aggregated == True,
+                Rental.is_hmo == True,
+            )
+            .first()
+        )
+        return float(agg.rent_per_room) if agg and agg.rent_per_room else None
+
+    # Land Registry type codes → our property_type strings
+    _LR_TYPE_MAP = {
+        'detached': 'D',
+        'semi-detached': 'S',
+        'terraced': 'T',
+        'flat': 'F',
+    }
+
+    def _get_comparable_stats(self, postcode: str, property_type: Optional[str], bedrooms: Optional[int]) -> dict:
+        """
+        Query area stats filtered by property type if possible, falling back to
+        district-wide averages when fewer than 5 comparables are found.
+        """
+        lr_type = self._LR_TYPE_MAP.get((property_type or '').lower())
+        if not lr_type:
+            return self._get_area_stats(postcode)
+
+        district = postcode.split(' ')[0] if postcode and ' ' in postcode else (postcode or '')[:4]
+        now = datetime.utcnow()
+        for years in [1, 3]:
+            cutoff = now - timedelta(days=365 * years)
+            rows = (
+                self.db.query(SalesHistory)
+                .filter(
+                    SalesHistory.postcode.like(f"{district}%"),
+                    SalesHistory.sale_date >= cutoff,
+                    SalesHistory.property_type == lr_type,
+                )
+                .all()
+            )
+            if len(rows) >= 5:
+                import statistics as _stats
+                prices = [r.sale_price for r in rows]
+                median = _stats.median(prices)
+                avg = sum(prices) / len(prices)
+                # Build a stats dict compatible with _get_area_stats output
+                base = self._get_area_stats(postcode)
+                base['avg_price_1yr'] = median
+                base['transaction_count'] = len(rows)
+                return base
+
+        # Fewer than 5 type-matched comparables — fall back to district-wide
+        return self._get_area_stats(postcode)
+
     def _get_area_stats(self, postcode: str) -> dict:
         """Compute area price statistics from sales history."""
         district = postcode.split(' ')[0] if ' ' in postcode else postcode[:4]
@@ -341,5 +408,6 @@ def save_score(db: Session, prop: Property, result: ScoringResult):
     score.investment_score = result.investment_score
     score.price_band = result.price_band
     score.hmo_opportunity_score = result.hmo_opportunity_score
+    score.hmo_gross_yield_pct = result.hmo_gross_yield_pct
     score.calculated_at = datetime.utcnow()
     score.model_version = '1.0'

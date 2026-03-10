@@ -21,14 +21,14 @@ echo  Connecting to: 159.69.153.234:5432
 echo ============================================================
 echo.
 
-echo [1/3] Scraping OpenRent...
-python -m backend.scrapers.openrent_scraper --districts-from-db --pages 5
-if %ERRORLEVEL% NEQ 0 echo WARNING: OpenRent scraper exited with error %ERRORLEVEL%
+echo [1/3] Scraping Rightmove (whole-property rents)...
+python -m backend.scrapers.rightmove_rental_scraper --districts-from-db --pages 10
+if %ERRORLEVEL% NEQ 0 echo WARNING: Rightmove scraper exited with error %ERRORLEVEL%
 
 echo.
-echo [2/3] Scraping Rightmove...
-python -m backend.scrapers.rightmove_rental_scraper --districts-from-db --pages 5
-if %ERRORLEVEL% NEQ 0 echo WARNING: Rightmove scraper exited with error %ERRORLEVEL%
+echo [2/3] Scraping SpareRoom (HMO room rents)...
+python -m backend.scrapers.rental_scraper --districts-from-db --pages 3
+if %ERRORLEVEL% NEQ 0 echo WARNING: SpareRoom scraper exited with error %ERRORLEVEL%
 
 echo.
 echo [3/3] Triggering re-score on server...

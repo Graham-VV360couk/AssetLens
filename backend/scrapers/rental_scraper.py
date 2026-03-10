@@ -8,6 +8,7 @@ import os
 import re
 import sys
 import time
+import random
 from datetime import datetime
 from typing import Optional
 from urllib.parse import urlencode
@@ -62,6 +63,7 @@ class SpareRoomScraper:
 
     def search_area(self, location: str, max_pages: int = 5) -> list:
         results = []
+        seen_urls: set = set()
         for page in range(1, max_pages + 1):
             params = {'location': location, 'page': page, 'per_page': 50}
             url = self.SEARCH + '?' + urlencode(params)
@@ -69,54 +71,63 @@ class SpareRoomScraper:
             if not soup:
                 break
 
-            listings = soup.select('.listing-result, article.listing, [data-listing-id]')
+            listings = soup.select('article.listing-card, .listing-result, article.listing, [data-listing-id]')
             if not listings:
                 break
 
+            new_count = 0
             for listing in listings:
                 try:
                     item = self._parse_listing(listing)
                     if item:
+                        url_key = item.get('source_url', '')
+                        if url_key and url_key in seen_urls:
+                            continue  # duplicate — already seen on a prior page
+                        if url_key:
+                            seen_urls.add(url_key)
                         results.append(item)
+                        new_count += 1
                 except Exception as e:
                     logger.debug("Parse error: %s", e)
 
-            logger.info("SpareRoom %s page %d: %d results", location, page, len(results))
+            logger.info("SpareRoom %s page %d: %d new, %d total", location, page, new_count, len(results))
+            if new_count == 0:
+                logger.info("SpareRoom %s: no new results on page %d — stopping early", location, page)
+                break
 
         return results
 
     def _parse_listing(self, el) -> Optional[dict]:
-        price_el = el.select_one('.price, .cost, [data-price]')
-        addr_el = el.select_one('.address, .location, h2, h3')
-        rooms_el = el.select_one('.rooms, [data-rooms]')
         link = el.select_one('a[href]')
+        text = el.get_text(' ', strip=True)
 
-        if not price_el or not addr_el:
+        # Price — "£850 pcm" or "£195 pw"
+        price_m = re.search(r'£([\d,]+)', text)
+        if not price_m:
+            return None
+        price = _parse_price(price_m.group(0))
+        if price and re.search(r'\bpw\b|per week', text, re.IGNORECASE):
+            price = price * 52 / 12
+        if not price or price < 100:
             return None
 
-        price_text = price_el.get_text(strip=True)
-        # Convert weekly to monthly
-        price = _parse_price(price_text)
-        if price and 'pw' in price_text.lower():
-            price = price * 52 / 12
+        # Postcode — SpareRoom shows district in parentheses e.g. "(NG1)" or "(NG1 2AB)"
+        postcode_m = re.search(r'\(([A-Z]{1,2}\d{1,2}[A-Z]?(?:\s*\d[A-Z]{2})?)\)', text, re.IGNORECASE)
+        if not postcode_m:
+            postcode_m = re.search(r'\b([A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2})\b', text, re.IGNORECASE)
+        postcode = postcode_m.group(1).upper().strip() if postcode_m else ''
 
-        addr = addr_el.get_text(strip=True)
-        postcode_match = re.search(r'\b[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}\b', addr, re.IGNORECASE)
-        postcode = postcode_match.group(0).upper() if postcode_match else ''
-
-        rooms = None
-        if rooms_el:
-            rm = re.search(r'\d+', rooms_el.get_text())
-            rooms = int(rm.group(0)) if rm else None
+        # Room type — studio = 0 bedrooms, otherwise 1 room per listing
+        is_studio = bool(re.search(r'\bstudio\b', text, re.IGNORECASE))
 
         return {
-            'address': addr,
+            'address': text[:120],
             'postcode': postcode,
             'rent_per_room': price,
-            'num_rooms': rooms or 1,
+            'num_rooms': 1,
             'source': 'spareroom',
             'source_url': self.BASE + link['href'] if link else '',
-            'is_hmo': True,
+            'is_hmo': not is_studio,
             'date_listed': datetime.utcnow(),
         }
 
@@ -134,6 +145,10 @@ class RentalImporter:
                 self._save_listing(listing)
             except Exception as e:
                 logger.warning("Error saving rental: %s", e)
+                try:
+                    self.db.rollback()
+                except Exception:
+                    pass
                 self.stats['errors'] += 1
 
         # Aggregate by postcode district
@@ -208,11 +223,12 @@ class RentalImporter:
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description='Scrape rental data')
-    parser.add_argument('locations', nargs='*', default=['London', 'Manchester', 'Birmingham',
-                        'Leeds', 'Sheffield', 'Liverpool', 'Bristol', 'Leicester'],
-                        help='Locations to scrape')
-    parser.add_argument('--pages', type=int, default=5, help='Pages per location')
+    from backend.models.property import Property
+    parser = argparse.ArgumentParser(description='Scrape SpareRoom HMO room rental data')
+    parser.add_argument('locations', nargs='*', help='Postcode districts or city names to scrape')
+    parser.add_argument('--districts-from-db', action='store_true',
+                        help='Scrape all postcode districts with active properties')
+    parser.add_argument('--pages', type=int, default=3, help='Pages per location')
     args = parser.parse_args()
 
     db = SessionLocal()
@@ -220,11 +236,31 @@ def main():
         scraper = SpareRoomScraper()
         importer = RentalImporter(db)
 
+        locations = list(args.locations)
+        if args.districts_from_db or not locations:
+            rows = (db.query(Property.postcode)
+                    .filter(Property.status == 'active', Property.postcode != None, Property.postcode != '')
+                    .distinct().all())
+            seen, districts = set(), []
+            for (pc,) in rows:
+                d = pc.split(' ')[0].upper() if ' ' in pc else pc.upper()[:4]
+                if d and d not in seen:
+                    seen.add(d)
+                    districts.append(d)
+            logger.info('Found %d districts in DB', len(districts))
+            locations = locations + [d for d in districts if d not in locations]
+
+        if not locations:
+            logger.error('No locations specified.')
+            return
+
         all_listings = []
-        for loc in args.locations:
+        for loc in locations:
             logger.info("Scraping %s...", loc)
             listings = scraper.search_area(loc, max_pages=args.pages)
+            logger.info("%s: %d listings", loc, len(listings))
             all_listings.extend(listings)
+            time.sleep(RATE_LIMIT)
 
         logger.info("Total listings: %d", len(all_listings))
         importer.import_listings(all_listings)

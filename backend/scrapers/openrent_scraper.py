@@ -57,6 +57,10 @@ class OpenRentScraper:
     BASE = 'https://www.openrent.co.uk'
     SEARCH = BASE + '/properties-to-rent/'
 
+    # Delay between districts — OpenRent rate-limits at ~1 req/2s; 429 = 90s cooldown
+    DISTRICT_DELAY = (10, 20)  # seconds between districts
+    RATE_LIMIT_BACKOFF = 100   # seconds to wait on 429
+
     async def scrape_district(self, district: str, max_pages: int = 5) -> list[dict]:
         """Scrape all listings in a postcode district (e.g. 'NG1')."""
         from playwright.async_api import async_playwright
@@ -75,14 +79,25 @@ class OpenRentScraper:
                 for pg in range(1, max_pages + 1):
                     url = f"{self.SEARCH}?term={district}&isLive=1&page={pg}"
                     try:
-                        await page.goto(url, wait_until='networkidle', timeout=30000)
+                        resp = await page.goto(url, wait_until='networkidle', timeout=30000)
                     except Exception as e:
                         logger.warning('OpenRent navigation failed for %s page %d: %s', district, pg, e)
                         break
 
+                    # Detect rate limit (429 or "wait N seconds" page)
+                    status = resp.status if resp else 200
+                    if status == 429:
+                        logger.warning('OpenRent rate limited on %s — waiting %ds', district, self.RATE_LIMIT_BACKOFF)
+                        await asyncio.sleep(self.RATE_LIMIT_BACKOFF)
+                        resp = await page.goto(url, wait_until='networkidle', timeout=30000)
+                    body_text = await page.inner_text('body')
+                    if 'wait' in body_text[:100].lower() and 'seconds' in body_text[:100].lower():
+                        logger.warning('OpenRent throttle page on %s — waiting %ds', district, self.RATE_LIMIT_BACKOFF)
+                        await asyncio.sleep(self.RATE_LIMIT_BACKOFF)
+                        await page.goto(url, wait_until='networkidle', timeout=30000)
+
                     # OpenRent uses .pli for property listing cards (as of 2026)
                     cards = await page.query_selector_all('.pli')
-                    # Fallbacks for older markup
                     if not cards:
                         cards = await page.query_selector_all(
                             '.property-listing, [data-property-id], '
@@ -104,7 +119,7 @@ class OpenRentScraper:
                             logger.debug('Parse error: %s', e)
 
                     logger.info('OpenRent %s page %d: %d total so far', district, pg, len(listings))
-                    await asyncio.sleep(random.uniform(2, 4))
+                    await asyncio.sleep(random.uniform(4, 8))
             finally:
                 await browser.close()
         return listings
@@ -171,6 +186,10 @@ class OpenRentImporter:
                 self._save_listing(listing)
             except Exception as e:
                 logger.warning('Error saving rental: %s', e)
+                try:
+                    self.db.rollback()
+                except Exception:
+                    pass
                 self.stats['errors'] += 1
 
         districts = set()
@@ -308,11 +327,15 @@ def main():
 
         logger.info('Scraping %d districts: %s', len(districts), districts)
         all_listings = []
-        for district in districts:
-            logger.info('Scraping district %s...', district)
+        for i, district in enumerate(districts):
+            logger.info('Scraping district %s (%d/%d)...', district, i + 1, len(districts))
             listings = asyncio.run(scraper.scrape_district(district, max_pages=args.pages))
             logger.info('%s: %d listings found', district, len(listings))
             all_listings.extend(listings)
+            if i < len(districts) - 1:
+                delay = random.uniform(*OpenRentScraper.DISTRICT_DELAY)
+                logger.info('Waiting %.0fs before next district...', delay)
+                import time; time.sleep(delay)
 
         logger.info('Total listings scraped: %d', len(all_listings))
         importer.import_listings(all_listings)

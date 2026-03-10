@@ -105,6 +105,7 @@ class RightmoveRentalScraper:
 
         from playwright.async_api import async_playwright
         listings = []
+        seen_urls: set = set()
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             page = await browser.new_page()
@@ -131,15 +132,25 @@ class RightmoveRentalScraper:
                         logger.info('Rightmove %s page %d: no listings found, stopping', district, pg + 1)
                         break
 
+                    new_count = 0
                     for card in cards:
                         try:
                             item = await self._parse_card(card, district)
                             if item:
+                                url_key = item.get('source_url', '')
+                                if url_key and url_key in seen_urls:
+                                    continue  # duplicate — already seen on a prior page
+                                if url_key:
+                                    seen_urls.add(url_key)
                                 listings.append(item)
+                                new_count += 1
                         except Exception as e:
                             logger.debug('Parse error: %s', e)
 
-                    logger.info('Rightmove %s page %d: %d total so far', district, pg + 1, len(listings))
+                    logger.info('Rightmove %s page %d: %d new, %d total', district, pg + 1, new_count, len(listings))
+                    if new_count == 0:
+                        logger.info('Rightmove %s: no new results on page %d — stopping early', district, pg + 1)
+                        break
                     await asyncio.sleep(random.uniform(2, 4))
             finally:
                 await browser.close()
@@ -209,6 +220,10 @@ class RightmoveRentalImporter:
                 self._save_listing(listing)
             except Exception as e:
                 logger.warning('Error saving rental: %s', e)
+                try:
+                    self.db.rollback()
+                except Exception:
+                    pass
                 self.stats['errors'] += 1
 
         districts = set()

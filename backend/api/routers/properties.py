@@ -39,7 +39,12 @@ def _build_query(db: Session, filters: PropertyFilters):
     if filters.status:
         q = q.filter(Property.status == filters.status)
     if filters.postcode:
-        q = q.filter(Property.postcode.ilike(f"{filters.postcode}%"))
+        districts = [p.strip().upper() for p in filters.postcode.split(',') if p.strip()]
+        if len(districts) == 1:
+            q = q.filter(Property.postcode.ilike(f"{districts[0]}%"))
+        else:
+            from sqlalchemy import or_ as _or_
+            q = q.filter(_or_(*[Property.postcode.ilike(f"{d}%") for d in districts]))
     if filters.town:
         q = q.filter(Property.town.ilike(f"%{filters.town}%"))
     if filters.county:

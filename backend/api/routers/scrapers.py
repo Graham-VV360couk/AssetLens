@@ -1823,3 +1823,72 @@ def get_latest_run_id(source_id: int, db: Session = Depends(get_db)):
         .first()
     )
     return {'run_id': latest.run_id if latest else None}
+
+
+# ---------------------------------------------------------------------------
+# Scrape All Sources — chains Rightmove + SpareRoom + re-score in background
+# ---------------------------------------------------------------------------
+
+def _run_all_scrapers_job():
+    """Background task: scrape Rightmove + SpareRoom for all active districts, then re-score."""
+    import asyncio as _asyncio
+    from backend.models.base import SessionLocal as _SessionLocal
+    from backend.scrapers.rightmove_rental_scraper import RightmoveRentalScraper, RightmoveRentalImporter
+    from backend.scrapers.rental_scraper import SpareRoomScraper, RentalImporter
+    from backend.services.scoring_service import PropertyScoringService, save_score
+
+    db = _SessionLocal()
+    try:
+        # Collect active districts
+        postcodes = (
+            db.query(Property.postcode)
+            .filter(Property.status == 'active', Property.postcode.isnot(None))
+            .distinct()
+            .all()
+        )
+        districts = list({
+            pc[0].split(' ')[0].upper() for pc in postcodes if pc[0]
+        })
+        logger.info('[run-all] Scraping %d districts', len(districts))
+
+        rm_scraper = RightmoveRentalScraper()
+        rm_importer = RightmoveRentalImporter(db)
+        sr_scraper = SpareRoomScraper()
+        sr_importer = RentalImporter(db)
+
+        for district in districts:
+            try:
+                listings = _asyncio.run(rm_scraper.scrape_district(district, max_pages=10))
+                rm_importer.import_listings(listings)
+            except Exception as e:
+                logger.warning('[run-all] Rightmove failed for %s: %s', district, e)
+            try:
+                listings = sr_scraper.search_area(district, max_pages=5)
+                sr_importer.import_listings(listings)
+            except Exception as e:
+                logger.warning('[run-all] SpareRoom failed for %s: %s', district, e)
+
+        logger.info('[run-all] Scrape complete. RM: %s  SR: %s', rm_importer.stats, sr_importer.stats)
+
+        # Re-score all active properties
+        from backend.api.routers.scoring import _run_scoring_job
+        _run_scoring_job()
+        logger.info('[run-all] Re-score complete')
+    except Exception as e:
+        logger.error('[run-all] Job failed: %s', e)
+    finally:
+        db.close()
+
+
+@router.post('/run-all')
+def run_all_scrapers(background_tasks: BackgroundTasks):
+    """Scrape Rightmove + SpareRoom for all active districts, then re-score all properties.
+
+    Runs entirely in the background — typically takes 1-3 hours depending on
+    the number of districts. Safe to trigger from the UI.
+    """
+    if _progress.get('running'):
+        raise HTTPException(status_code=409, detail='A scrape is already running')
+    background_tasks.add_task(_run_all_scrapers_job)
+    return {'message': 'Full scrape started — Rightmove + SpareRoom + re-score running in background'}
+

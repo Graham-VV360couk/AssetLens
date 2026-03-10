@@ -216,13 +216,40 @@ def trigger_rental_scrape(background_tasks: BackgroundTasks):
 
 @router.get('/status')
 def scoring_status(db: Session = Depends(get_db)):
-    """Return scoring coverage stats."""
+    """Return scoring coverage and rental data stats."""
+    from sqlalchemy import func
+    from backend.models.rental import Rental
+
     total_active = db.query(Property).filter(Property.status == 'active').count()
     total_scored = db.query(PropertyScore).count()
     last_score = db.query(PropertyScore).order_by(PropertyScore.calculated_at.desc()).first()
+
+    # Rental scrape progress
+    rental_listings = db.query(Rental).filter(Rental.is_aggregated == False).count()
+    rental_aggregates = db.query(Rental).filter(Rental.is_aggregated == True).count()
+    rental_districts = (
+        db.query(func.count(func.distinct(func.split_part(Rental.postcode, ' ', 1))))
+        .filter(Rental.is_aggregated == False)
+        .scalar()
+    )
+    by_source = dict(
+        db.query(Rental.source, func.count(Rental.id))
+        .filter(Rental.is_aggregated == False)
+        .group_by(Rental.source)
+        .all()
+    )
+    last_rental = db.query(func.max(Rental.date_listed)).scalar()
+
     return {
         "total_active": total_active,
         "total_scored": total_scored,
         "unscored": total_active - total_scored,
         "last_calculated_at": last_score.calculated_at.isoformat() if last_score else None,
+        "rentals": {
+            "listings": rental_listings,
+            "aggregates": rental_aggregates,
+            "districts_covered": rental_districts or 0,
+            "by_source": by_source,
+            "last_scraped": last_rental.isoformat() if last_rental else None,
+        },
     }

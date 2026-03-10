@@ -563,8 +563,10 @@ function StrategyLibraryPanel() {
 
 function RunLogPane({ sourceId, isRunning }) {
   const [logs, setLogs] = useState([]);
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const bottomRef = React.useRef(null);
+  const scrollBoxRef = React.useRef(null);
+  const atBottomRef = React.useRef(true);
 
   useEffect(() => {
     if (!sourceId) return;
@@ -581,8 +583,16 @@ function RunLogPane({ sourceId, isRunning }) {
     return () => { cancelled = true; clearInterval(timer); };
   }, [sourceId, isRunning]);
 
+  const handleLogScroll = () => {
+    const el = scrollBoxRef.current;
+    if (!el) return;
+    atBottomRef.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 24;
+  };
+
   useEffect(() => {
-    if (open && bottomRef.current) bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    if (open && atBottomRef.current && bottomRef.current) {
+      bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [logs, open]);
 
   const levelColour = (level) => ({
@@ -606,7 +616,7 @@ function RunLogPane({ sourceId, isRunning }) {
         <span className="ml-auto text-slate-700">{open ? '▲' : '▼'}</span>
       </button>
       {open && (
-        <div className="px-3 pb-3 max-h-52 overflow-y-auto font-mono text-xs space-y-0.5">
+        <div ref={scrollBoxRef} onScroll={handleLogScroll} className="px-3 pb-3 max-h-52 overflow-y-auto font-mono text-xs space-y-0.5">
           {logs.map((log, i) => (
             <div key={i} className="flex gap-2 leading-relaxed">
               <span className="text-slate-700 shrink-0 select-none">
@@ -639,6 +649,8 @@ export default function Scrapers() {
   const [rescoring, setRescoring] = useState(false);
   const [rescoreStatus, setRescoreStatus] = useState(null); // null | 'running' | 'done' | 'error'
   const [scoringStats, setScoringStats] = useState(null);
+  const [scrapeAllRunning, setScrapeAllRunning] = useState(false);
+  const [scrapeAllStatus, setScrapeAllStatus] = useState(null); // null | 'running' | 'done' | 'error'
 
   const load = async () => {
     try {
@@ -795,6 +807,20 @@ export default function Scrapers() {
     }
   };
 
+  const handleScrapeAll = async () => {
+    setScrapeAllRunning(true);
+    setScrapeAllStatus('running');
+    try {
+      const r = await fetch('/api/scrapers/run-all', { method: 'POST' });
+      if (!r.ok) throw new Error('Failed to start');
+      toast.success('Scraping all sources — this runs in the background (~2 hrs)');
+    } catch (e) {
+      toast.error(e.message || 'Failed to start scrape');
+      setScrapeAllStatus('error');
+      setScrapeAllRunning(false);
+    }
+  };
+
   const fmtDate = (d) => d
     ? new Date(d).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })
     : '—';
@@ -802,11 +828,33 @@ export default function Scrapers() {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-white">Data Sources</h1>
-        <p className="text-slate-400 text-sm mt-1">
-          Add auction houses and estate agent sites to scrape for property listings.
-        </p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Data Sources</h1>
+          <p className="text-slate-400 text-sm mt-1">
+            Add auction houses and estate agent sites to scrape for property listings.
+          </p>
+        </div>
+        <div className="flex flex-col items-end gap-2">
+          <button
+            onClick={handleScrapeAll}
+            disabled={scrapeAllRunning}
+            className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm rounded-xl transition-colors shadow-lg"
+            title="Scrape Rightmove + SpareRoom for all active districts, then re-score"
+          >
+            {scrapeAllRunning
+              ? <RefreshCw size={15} className="animate-spin" />
+              : <Zap size={15} />}
+            {scrapeAllRunning ? 'Scraping…' : 'Scrape All Sources'}
+          </button>
+          {scrapeAllStatus && (
+            <span className={clsx('text-xs', scrapeAllStatus === 'error' ? 'text-red-400' : 'text-slate-400')}>
+              {scrapeAllStatus === 'running' && 'Running in background (~2 hrs)'}
+              {scrapeAllStatus === 'done' && 'Complete'}
+              {scrapeAllStatus === 'error' && 'Failed — check backend logs'}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Add form */}

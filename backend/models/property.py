@@ -60,6 +60,7 @@ class Property(Base, TimestampMixin):
     auctions = relationship('Auction', back_populates='property', cascade='all, delete-orphan')
     score = relationship('PropertyScore', back_populates='property', cascade='all, delete-orphan', uselist=False)
     ai_insight = relationship('PropertyAIInsight', back_populates='property', cascade='all, delete-orphan', uselist=False)
+    attribute_profile = relationship('PropertyAttributeProfile', back_populates='property', cascade='all, delete-orphan', uselist=False)
 
     # Composite indexes for common queries
     __table_args__ = (
@@ -136,6 +137,7 @@ class PropertyScore(Base, TimestampMixin):
 
     # HMO opportunity
     hmo_opportunity_score = Column(Float)  # 0-100 if applicable
+    hmo_gross_yield_pct = Column(Float)    # estimated gross yield as HMO (%)
 
     # PropertyData.co.uk enrichment
     pd_avm = Column(Float)                    # AVM estimate from PropertyData

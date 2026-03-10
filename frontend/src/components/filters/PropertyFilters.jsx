@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Search, X } from 'lucide-react';
 
 const TYPES = ['', 'detached', 'semi-detached', 'terraced', 'flat'];
@@ -11,7 +11,36 @@ const SORTS = [
 
 export default function PropertyFilters({ filters, onChange, onReset }) {
   const [sources, setSources] = useState([]);
+  const [postcodeInput, setPostcodeInput] = useState('');
+  const postcodeInputRef = useRef(null);
   const handleChange = (key, value) => onChange({ ...filters, [key]: value || undefined, page: 1 });
+
+  // Parse comma-separated postcodes from filters into an array of tags
+  const postcodeTags = filters.postcode
+    ? filters.postcode.split(',').map(p => p.trim().toUpperCase()).filter(Boolean)
+    : [];
+
+  const addPostcodeTag = (raw) => {
+    const tag = raw.trim().toUpperCase();
+    if (!tag) return;
+    const next = [...new Set([...postcodeTags, tag])];
+    onChange({ ...filters, postcode: next.join(',') || undefined, page: 1 });
+    setPostcodeInput('');
+  };
+
+  const removePostcodeTag = (tag) => {
+    const next = postcodeTags.filter(t => t !== tag);
+    onChange({ ...filters, postcode: next.length ? next.join(',') : undefined, page: 1 });
+  };
+
+  const handlePostcodeKeyDown = (e) => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      addPostcodeTag(postcodeInput);
+    } else if (e.key === 'Backspace' && !postcodeInput && postcodeTags.length > 0) {
+      removePostcodeTag(postcodeTags[postcodeTags.length - 1]);
+    }
+  };
 
   useEffect(() => {
     fetch('/api/scrapers')
@@ -23,15 +52,29 @@ export default function PropertyFilters({ filters, onChange, onReset }) {
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
       <div className="flex items-center gap-3 flex-wrap">
-        {/* Search by postcode */}
-        <div className="relative flex-1 min-w-[160px]">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+        {/* Multi-postcode chip input */}
+        <div
+          className="relative flex items-center flex-wrap gap-1.5 flex-1 min-w-[200px] bg-slate-800 border border-slate-700 rounded-xl px-2.5 py-1.5 cursor-text focus-within:border-emerald-500"
+          onClick={() => postcodeInputRef.current?.focus()}
+        >
+          <Search size={14} className="text-slate-500 shrink-0" />
+          {postcodeTags.map(tag => (
+            <span key={tag} className="flex items-center gap-1 bg-emerald-500/20 text-emerald-300 text-xs font-medium px-2 py-0.5 rounded-lg">
+              {tag}
+              <button type="button" onClick={e => { e.stopPropagation(); removePostcodeTag(tag); }} className="hover:text-white">
+                <X size={11} />
+              </button>
+            </span>
+          ))}
           <input
+            ref={postcodeInputRef}
             type="text"
-            placeholder="Postcode (e.g. SW1A)"
-            value={filters.postcode || ''}
-            onChange={e => handleChange('postcode', e.target.value.toUpperCase())}
-            className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+            placeholder={postcodeTags.length === 0 ? 'Postcode, e.g. WD18, LU4' : ''}
+            value={postcodeInput}
+            onChange={e => setPostcodeInput(e.target.value.toUpperCase())}
+            onKeyDown={handlePostcodeKeyDown}
+            onBlur={() => addPostcodeTag(postcodeInput)}
+            className="flex-1 min-w-[80px] bg-transparent text-sm text-slate-200 placeholder-slate-500 focus:outline-none py-0.5"
           />
         </div>
 
