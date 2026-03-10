@@ -16,9 +16,9 @@ RUN apt-get update && apt-get install -y \
 COPY backend/requirements.txt /app/backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt
 
-# Install Playwright for scraping (if needed in production)
-RUN playwright install chromium
-RUN playwright install-deps chromium
+# Install Playwright browsers to a fixed path accessible by all users
+ENV PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright
+RUN playwright install chromium && playwright install-deps chromium
 
 # Copy application code (NO VOLUME MOUNTS IN PRODUCTION)
 COPY backend /app/backend
