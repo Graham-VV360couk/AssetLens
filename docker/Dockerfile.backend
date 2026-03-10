@@ -17,7 +17,7 @@ RUN pip install --no-cache-dir -r backend/requirements.txt
 
 # Install Playwright browsers to a fixed path (accessible regardless of runtime user)
 ENV PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright
-RUN playwright install chromium && playwright install-deps chromium
+RUN playwright install chromium && (playwright install-deps chromium || true)
 
 # Copy application code
 COPY backend /app/backend
