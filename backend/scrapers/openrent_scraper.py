@@ -80,12 +80,14 @@ class OpenRentScraper:
                         logger.warning('OpenRent navigation failed for %s page %d: %s', district, pg, e)
                         break
 
-                    # Try multiple selectors — OpenRent changes its markup periodically
-                    cards = await page.query_selector_all(
-                        '.property-listing, [data-property-id], '
-                        'li.listing, div.listing, article[data-listing-id]'
-                    )
-                    # Fallback: anchor cards linking to /property/
+                    # OpenRent uses .pli for property listing cards (as of 2026)
+                    cards = await page.query_selector_all('.pli')
+                    # Fallbacks for older markup
+                    if not cards:
+                        cards = await page.query_selector_all(
+                            '.property-listing, [data-property-id], '
+                            'li.listing, div.listing, article[data-listing-id]'
+                        )
                     if not cards:
                         cards = await page.query_selector_all('a[href*="/property/"]')
 
@@ -110,25 +112,24 @@ class OpenRentScraper:
     async def _parse_card(self, card, fallback_district: str) -> Optional[dict]:
         text = await card.inner_text()
 
-        # Rent — look for £NNN pattern
-        rent_el = await card.query_selector('.price, .rent, [class*="price"], [class*="rent"], strong')
-        rent_text = (await rent_el.inner_text()) if rent_el else ''
-        if not rent_text:
-            m = re.search(r'£[\d,]+', text)
-            rent_text = m.group(0) if m else ''
-        rent = _parse_price(rent_text)
+        # Rent — first £NNN in the text (e.g. "£715\nper month\n...")
+        m = re.search(r'£([\d,]+)', text)
+        rent = _parse_price(m.group(0)) if m else None
         if not rent or rent < 200:
             return None
 
-        # Bedrooms
-        beds_el = await card.query_selector('[class*="bed"], [data-beds]')
-        beds_text = (await beds_el.inner_text()) if beds_el else text
-        beds_m = re.search(r'(\d)\s*(?:bed|bedroom|bd)', beds_text, re.IGNORECASE)
-        bedrooms = int(beds_m.group(1)) if beds_m else None
+        # Bedrooms — "2 Bed ..." or "Studio" = 0 beds
+        beds_m = re.search(r'(\d+)\s*[Bb]ed', text)
+        if beds_m:
+            bedrooms = int(beds_m.group(1))
+        elif re.search(r'\bstudio\b', text, re.IGNORECASE):
+            bedrooms = 0
+        else:
+            bedrooms = None
 
         # Property type
         type_m = re.search(
-            r'\b(flat|apartment|studio|terraced|semi.detached|detached|bungalow|maisonette)\b',
+            r'\b(flat|apartment|studio|terraced|semi.detached|detached|bungalow|maisonette|house)\b',
             text, re.IGNORECASE
         )
         property_type = type_m.group(1).lower() if type_m else None
@@ -137,17 +138,13 @@ class OpenRentScraper:
         if property_type and 'semi' in property_type:
             property_type = 'semi-detached'
 
-        # Postcode
+        # Postcode — full postcode rarely present; fall back to district
         postcode = _extract_postcode(text) or fallback_district
 
-        # Source URL
-        tag = await card.get_attribute('href')
-        if tag and tag.startswith('/property/'):
-            source_url = self.BASE + tag
-        else:
-            link_el = await card.query_selector('a[href*="/property/"]')
-            href = (await link_el.get_attribute('href')) if link_el else None
-            source_url = (self.BASE + href) if href and href.startswith('/') else ''
+        # Source URL — built from data-listing-id on the inner swiper element
+        swiper = await card.query_selector('[data-listing-id]')
+        lid = (await swiper.get_attribute('data-listing-id')) if swiper else None
+        source_url = f'{self.BASE}/properties/{lid}' if lid else ''
 
         return {
             'postcode': postcode,

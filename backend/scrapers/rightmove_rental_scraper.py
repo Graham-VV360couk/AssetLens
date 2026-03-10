@@ -65,26 +65,33 @@ class RightmoveRentalScraper:
     Scrapes Rightmove property-to-rent search using Playwright.
     Resolves district → OUTCODE ID via typeahead, then paginates results.
     """
-    TYPEAHEAD = 'https://api.rightmove.co.uk/api/sell/v2/typeahead'
+    # Rightmove Location Outcode Service (found via browser network intercept)
+    TYPEAHEAD = 'https://los.rightmove.co.uk/typeahead'
     SEARCH = 'https://www.rightmove.co.uk/property-to-rent/find.html'
     BASE = 'https://www.rightmove.co.uk'
 
     def resolve_location_id(self, district: str) -> Optional[str]:
-        """Get Rightmove OUTCODE identifier for a postcode district."""
+        """Get Rightmove OUTCODE^ID identifier for a postcode district."""
         try:
             r = requests.get(
                 self.TYPEAHEAD,
-                params={'apiApplication': 'FIND_A_PROPERTY', 'query': district},
+                params={'query': district, 'limit': 10, 'exclude': 'STREET'},
                 headers=HEADERS,
                 timeout=10,
             )
             r.raise_for_status()
-            locs = r.json().get('typeAheadLocations', [])
-            for loc in locs:
-                ident = loc.get('locationIdentifier', '')
-                if 'OUTCODE' in ident:
-                    logger.debug('Resolved %s → %s', district, ident)
-                    return ident
+            matches = r.json().get('matches', [])
+            for m in matches:
+                if m.get('type') == 'OUTCODE' and m.get('displayName', '').upper() == district.upper():
+                    loc_id = f"OUTCODE^{m['id']}"
+                    logger.debug('Resolved %s → %s', district, loc_id)
+                    return loc_id
+            # Fallback: first OUTCODE match
+            for m in matches:
+                if m.get('type') == 'OUTCODE':
+                    loc_id = f"OUTCODE^{m['id']}"
+                    logger.debug('Resolved %s → %s (fallback)', district, loc_id)
+                    return loc_id
         except Exception as e:
             logger.warning('Typeahead lookup failed for %s: %s', district, e)
         return None
@@ -117,11 +124,8 @@ class RightmoveRentalScraper:
                         logger.warning('Rightmove navigation failed for %s page %d: %s', district, pg + 1, e)
                         break
 
-                    cards = await page.query_selector_all(
-                        '[data-test="property-result"], '
-                        'div.l-searchResult, '
-                        'article.propertyCard'
-                    )
+                    # Rightmove uses .propertyCard-details as the stable card class (2026)
+                    cards = await page.query_selector_all('.propertyCard-details')
 
                     if not cards:
                         logger.info('Rightmove %s page %d: no listings found, stopping', district, pg + 1)
@@ -144,31 +148,26 @@ class RightmoveRentalScraper:
     async def _parse_card(self, card, fallback_district: str) -> Optional[dict]:
         text = await card.inner_text()
 
-        # Rent
-        price_el = await card.query_selector(
-            '[data-test="property-price"], .propertyCard-priceValue, '
-            '[class*="price"], [class*="Price"]'
-        )
-        rent_text = (await price_el.inner_text()) if price_el else ''
-        if not rent_text:
-            m = re.search(r'£[\d,]+', text)
-            rent_text = m.group(0) if m else ''
-        rent = _parse_price(rent_text)
+        # Rent — "£872 pcm" is the monthly figure; skip weekly "pw" entries
+        m = re.search(r'£([\d,]+)\s*pcm', text)
+        if not m:
+            m = re.search(r'£([\d,]+)', text)
+        rent = _parse_price(m.group(0)) if m else None
         if not rent or rent < 200:
             return None
 
-        # Bedrooms
-        beds_el = await card.query_selector(
-            '[data-test="property-beds"], .propertyCard-bedroomNumber, '
-            '[class*="bedroom"], [class*="Bedroom"]'
-        )
-        beds_text = (await beds_el.inner_text()) if beds_el else text
-        beds_m = re.search(r'(\d)\s*(?:bed|bedroom|bd)', beds_text, re.IGNORECASE)
-        bedrooms = int(beds_m.group(1)) if beds_m else None
+        # Bedrooms — text layout: TYPE\nN_BEDS\nN_BATHS; first standalone int after type
+        beds_m = re.search(r'(\d+)\s*(?:bed|bedroom|bd)', text, re.IGNORECASE)
+        if beds_m:
+            bedrooms = int(beds_m.group(1))
+        else:
+            # Fallback: first isolated number on its own line after the address
+            lines = [l.strip() for l in text.splitlines() if l.strip().isdigit()]
+            bedrooms = int(lines[0]) if lines else None
 
         # Property type
         type_m = re.search(
-            r'\b(flat|apartment|studio|terraced|semi.detached|detached|bungalow|maisonette)\b',
+            r'\b(flat|apartment|studio|terraced|semi.detached|semi-detached|detached|bungalow|maisonette|house)\b',
             text, re.IGNORECASE
         )
         property_type = type_m.group(1).lower() if type_m else None
@@ -177,13 +176,13 @@ class RightmoveRentalScraper:
         if property_type and 'semi' in property_type:
             property_type = 'semi-detached'
 
-        # Postcode
+        # Postcode — full postcode is in the address line
         postcode = _extract_postcode(text) or fallback_district
 
         # Source URL
         link_el = await card.query_selector('a[href*="/properties/"]')
         href = (await link_el.get_attribute('href')) if link_el else None
-        source_url = (self.BASE + href) if href and href.startswith('/') else (href or '')
+        source_url = (self.BASE + href.split('#')[0]) if href and href.startswith('/') else (href or '')
 
         return {
             'postcode': postcode,
