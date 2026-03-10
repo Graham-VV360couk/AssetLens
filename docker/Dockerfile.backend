@@ -22,7 +22,6 @@ RUN playwright install chromium && playwright install-deps chromium
 # Copy application code
 COPY backend /app/backend
 COPY database /app/database
-COPY .env /app/.env
 
 # Create logs directory
 RUN mkdir -p /app/logs
