@@ -108,6 +108,7 @@ services:
       # API keys — values sourced from .env
       SEARCHLAND_API_KEY: ${SEARCHLAND_API_KEY:-}
       PROPERTYDATA_API_KEY: ${PROPERTYDATA_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       # Email alerts
       SMTP_HOST: ${SMTP_HOST:-smtp.sendgrid.net}
       SMTP_PORT: ${SMTP_PORT:-587}
