@@ -229,10 +229,14 @@ class LandRegistryImporter:
         from sqlalchemy.dialects.postgresql import insert as pg_insert
         if not batch:
             return 0
-        rows = [
-            {c.key: getattr(obj, c.key) for c in obj.__table__.columns}
-            for obj in batch
-        ]
+        now = datetime.utcnow()
+        skip = {'id'}
+        rows = []
+        for obj in batch:
+            row = {c.key: getattr(obj, c.key) for c in obj.__table__.columns if c.key not in skip}
+            row['created_at'] = row.get('created_at') or now
+            row['updated_at'] = row.get('updated_at') or now
+            rows.append(row)
         stmt = pg_insert(SalesHistory.__table__).values(rows)
         stmt = stmt.on_conflict_do_nothing(index_elements=['transaction_id'])
         result = self.session.execute(stmt)
