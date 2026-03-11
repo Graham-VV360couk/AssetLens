@@ -64,6 +64,7 @@ class SpareRoomScraper:
     def search_area(self, location: str, max_pages: int = 5) -> list:
         results = []
         seen_urls: set = set()
+        consecutive_empty = 0
         for page in range(1, max_pages + 1):
             params = {'location': location, 'page': page, 'per_page': 50}
             url = self.SEARCH + '?' + urlencode(params)
@@ -73,6 +74,7 @@ class SpareRoomScraper:
 
             listings = soup.select('article.listing-card, .listing-result, article.listing, [data-listing-id]')
             if not listings:
+                logger.info("SpareRoom %s: no listings on page %d — stopping", location, page)
                 break
 
             new_count = 0
@@ -82,7 +84,7 @@ class SpareRoomScraper:
                     if item:
                         url_key = item.get('source_url', '')
                         if url_key and url_key in seen_urls:
-                            continue  # duplicate — already seen on a prior page
+                            continue  # duplicate in this run
                         if url_key:
                             seen_urls.add(url_key)
                         results.append(item)
@@ -91,8 +93,19 @@ class SpareRoomScraper:
                     logger.debug("Parse error: %s", e)
 
             logger.info("SpareRoom %s page %d: %d new, %d total", location, page, new_count, len(results))
+
             if new_count == 0:
-                logger.info("SpareRoom %s: no new results on page %d — stopping early", location, page)
+                consecutive_empty += 1
+                logger.info("SpareRoom %s: no new results on page %d (%d consecutive)", location, page, consecutive_empty)
+                if consecutive_empty >= 2:
+                    logger.info("SpareRoom %s: stopping after %d consecutive empty pages", location, consecutive_empty)
+                    break
+            else:
+                consecutive_empty = 0
+
+            # If page returned fewer than per_page items, we've reached the end
+            if len(listings) < 50:
+                logger.info("SpareRoom %s: partial page (%d items) on page %d — end of results", location, len(listings), page)
                 break
 
         return results
@@ -162,6 +175,17 @@ class RentalImporter:
         self.db.commit()
 
     def _save_listing(self, listing: dict):
+        source_url = listing.get('source_url', '')
+        # Skip if already in DB (re-run dedup)
+        if source_url:
+            exists = (
+                self.db.query(Rental.id)
+                .filter(Rental.source_url == source_url, Rental.is_aggregated == False)
+                .first()
+            )
+            if exists:
+                return
+
         rental = Rental(
             rent_per_room=listing.get('rent_per_room'),
             rent_monthly=listing.get('rent_monthly') or (
@@ -173,7 +197,7 @@ class RentalImporter:
             num_rooms=listing.get('num_rooms', 1),
             date_listed=listing.get('date_listed', datetime.utcnow()),
             source=listing.get('source', 'spareroom'),
-            source_url=listing.get('source_url', ''),
+            source_url=source_url,
             is_hmo=listing.get('is_hmo', False),
             is_aggregated=False,
         )
