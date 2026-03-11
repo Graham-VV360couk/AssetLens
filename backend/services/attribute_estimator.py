@@ -209,14 +209,15 @@ class PropertyAttributeEstimator:
         self._detect_contradictions(profile, debug)
 
         source_summary = {
-            'has_floor_area':     'floor_area_sqm_listing' in facts,
-            'has_bedrooms':       'bedrooms_listing' in facts,
-            'has_bathrooms':      'bathrooms_listing' in facts,
+            'has_floor_area':      'floor_area_sqm_listing' in facts or 'epc_floor_area_sqm' in facts,
+            'has_epc':             'epc_floor_area_sqm' in facts or 'epc_property_type' in facts,
+            'has_bedrooms':        'bedrooms_listing' in facts,
+            'has_bathrooms':       'bathrooms_listing' in facts,
             'has_reception_rooms': 'reception_rooms_listing' in facts,
-            'has_description':    'description' in facts,
-            'has_lr_data':        'lr_property_type_dominant' in facts,
-            'has_overrides':      bool(overrides),
-            'override_fields':    list(overrides.keys()),
+            'has_description':     'description' in facts,
+            'has_lr_data':         'lr_property_type_dominant' in facts,
+            'has_overrides':       bool(overrides),
+            'override_fields':     list(overrides.keys()),
         }
 
         return {
@@ -249,6 +250,38 @@ class PropertyAttributeEstimator:
             facts['plot_size_sqm_listing'] = prop.plot_size_sqm
         if prop.description:
             facts['description'] = prop.description
+
+        # EPC data — use cached values on Property if already matched,
+        # otherwise do a live lookup (local DB table → API fallback)
+        try:
+            from backend.services import epc_service
+            if prop.epc_matched_at is not None:
+                # Already looked up — use cached values
+                if prop.epc_floor_area_sqm is not None:
+                    facts['epc_floor_area_sqm'] = prop.epc_floor_area_sqm
+                if prop.epc_property_type:
+                    facts['epc_property_type'] = prop.epc_property_type
+            elif prop.postcode and prop.address:
+                epc = epc_service.lookup_by_address(self.db, prop.postcode, prop.address)
+                if epc:
+                    if epc.get('floor_area_sqm') is not None:
+                        facts['epc_floor_area_sqm'] = epc['floor_area_sqm']
+                    if epc.get('mapped_type'):
+                        facts['epc_property_type'] = epc['mapped_type']
+                    # Cache results on the Property row to avoid re-querying
+                    prop.epc_floor_area_sqm  = epc.get('floor_area_sqm')
+                    prop.epc_property_type   = epc.get('mapped_type')
+                    prop.epc_energy_rating   = epc.get('energy_rating')
+                    prop.epc_inspection_date = epc.get('inspection_date')
+                    prop.epc_matched_at      = datetime.utcnow()
+                    self.db.flush()
+                else:
+                    # Mark as attempted (epc_matched_at = now, no data) so we
+                    # don't retry on every estimation call
+                    prop.epc_matched_at = datetime.utcnow()
+                    self.db.flush()
+        except Exception as e:
+            logger.debug("EPC lookup failed for property %s: %s", getattr(prop, 'id', '?'), e)
 
         # Land Registry type inference from same postcode
         if prop.postcode:
@@ -352,6 +385,15 @@ class PropertyAttributeEstimator:
                 source='listing',
                 explanation='Property type reported directly in listing data.',
             )
+        # 2b. EPC certificate data
+        if 'epc_property_type' in facts:
+            conf = 0.92
+            return AttributeField(
+                status='known', value=facts['epc_property_type'],
+                confidence=conf, confidence_label=confidence_label(conf),
+                source='epc',
+                explanation='Property type derived from matched EPC certificate.',
+            )
         # 3. Land Registry corroboration
         if 'lr_property_type_dominant' in facts:
             lr_code = facts['lr_property_type_dominant']
@@ -398,6 +440,17 @@ class PropertyAttributeEstimator:
                 confidence=conf, confidence_label=confidence_label(conf),
                 source='listing',
                 explanation='Floor area reported directly in listing data.',
+            )
+        # 2b. EPC certificate data
+        if 'epc_floor_area_sqm' in facts:
+            sqm = facts['epc_floor_area_sqm']
+            conf = 0.92
+            return AttributeField(
+                status='known',
+                value={'sqm': sqm, 'sqft': _sqm_to_sqft(sqm)},
+                confidence=conf, confidence_label=confidence_label(conf),
+                source='epc',
+                explanation='Floor area from matched EPC certificate (government register).',
             )
         # 3. Text extraction (sq ft → converted)
         if 'floor_area_sqm_text' in facts:

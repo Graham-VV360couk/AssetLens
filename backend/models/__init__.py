@@ -11,6 +11,8 @@ from .auction import Auction
 from .scraper_source import ScraperSource
 from .scraper_run_log import ScraperRunLog
 from .property_ai_insight import PropertyAIInsight
+from .property_attribute_profile import PropertyAttributeProfile
+from .epc_certificate import EPCCertificate
 
 __all__ = [
     'Base',
@@ -24,4 +26,6 @@ __all__ = [
     'ScraperSource',
     'ScraperRunLog',
     'PropertyAIInsight',
+    'PropertyAttributeProfile',
+    'EPCCertificate',
 ]

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Search, X } from 'lucide-react';
+import { MapPin, Search, X } from 'lucide-react';
 
 const TYPES = ['', 'detached', 'semi-detached', 'terraced', 'flat'];
 const SORTS = [
@@ -8,12 +8,17 @@ const SORTS = [
   { value: 'yield', label: 'Yield' },
   { value: 'date_found', label: 'Date Found' },
 ];
+const RADIUS_OPTIONS = [5, 10, 20, 50];
 
 export default function PropertyFilters({ filters, onChange, onReset }) {
   const [sources, setSources] = useState([]);
   const [postcodeInput, setPostcodeInput] = useState('');
+  const [radiusInput, setRadiusInput] = useState('');
   const postcodeInputRef = useRef(null);
+  const radiusInputRef = useRef(null);
   const handleChange = (key, value) => onChange({ ...filters, [key]: value || undefined, page: 1 });
+
+  const isRadiusMode = !!(filters.center_postcode);
 
   // Parse comma-separated postcodes from filters into an array of tags
   const postcodeTags = filters.postcode
@@ -24,7 +29,7 @@ export default function PropertyFilters({ filters, onChange, onReset }) {
     const tag = raw.trim().toUpperCase();
     if (!tag) return;
     const next = [...new Set([...postcodeTags, tag])];
-    onChange({ ...filters, postcode: next.join(',') || undefined, page: 1 });
+    onChange({ ...filters, postcode: next.join(',') || undefined, center_postcode: undefined, radius_miles: undefined, page: 1 });
     setPostcodeInput('');
   };
 
@@ -42,6 +47,31 @@ export default function PropertyFilters({ filters, onChange, onReset }) {
     }
   };
 
+  // Radius mode helpers
+  const applyRadius = (postcode, miles) => {
+    const pc = postcode.trim().toUpperCase();
+    if (!pc) return;
+    onChange({
+      ...filters,
+      center_postcode: pc,
+      radius_miles: miles || 20,
+      postcode: undefined, // clear chip filter
+      page: 1,
+    });
+  };
+
+  const clearRadius = () => {
+    setRadiusInput('');
+    onChange({ ...filters, center_postcode: undefined, radius_miles: undefined, page: 1 });
+  };
+
+  const handleRadiusKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      applyRadius(radiusInput, filters.radius_miles || 20);
+    }
+  };
+
   useEffect(() => {
     fetch('/api/scrapers')
       .then(r => r.json())
@@ -52,31 +82,69 @@ export default function PropertyFilters({ filters, onChange, onReset }) {
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
       <div className="flex items-center gap-3 flex-wrap">
-        {/* Multi-postcode chip input */}
-        <div
-          className="relative flex items-center flex-wrap gap-1.5 flex-1 min-w-[200px] bg-slate-800 border border-slate-700 rounded-xl px-2.5 py-1.5 cursor-text focus-within:border-emerald-500"
-          onClick={() => postcodeInputRef.current?.focus()}
-        >
-          <Search size={14} className="text-slate-500 shrink-0" />
-          {postcodeTags.map(tag => (
-            <span key={tag} className="flex items-center gap-1 bg-emerald-500/20 text-emerald-300 text-xs font-medium px-2 py-0.5 rounded-lg">
-              {tag}
-              <button type="button" onClick={e => { e.stopPropagation(); removePostcodeTag(tag); }} className="hover:text-white">
-                <X size={11} />
-              </button>
-            </span>
-          ))}
-          <input
-            ref={postcodeInputRef}
-            type="text"
-            placeholder={postcodeTags.length === 0 ? 'Postcode, e.g. WD18, LU4' : ''}
-            value={postcodeInput}
-            onChange={e => setPostcodeInput(e.target.value.toUpperCase())}
-            onKeyDown={handlePostcodeKeyDown}
-            onBlur={() => addPostcodeTag(postcodeInput)}
-            className="flex-1 min-w-[80px] bg-transparent text-sm text-slate-200 placeholder-slate-500 focus:outline-none py-0.5"
-          />
-        </div>
+        {/* Postcode section: chip mode OR radius chip */}
+        {isRadiusMode ? (
+          /* Active radius chip */
+          <div className="flex items-center gap-1.5 bg-emerald-500/20 text-emerald-300 text-xs font-medium px-3 py-1.5 rounded-xl border border-emerald-500/30">
+            <MapPin size={13} className="shrink-0" />
+            <span>Within {filters.radius_miles ?? 20} mi of {filters.center_postcode}</span>
+            <button type="button" onClick={clearRadius} className="ml-1 hover:text-white">
+              <X size={11} />
+            </button>
+          </div>
+        ) : (
+          /* Multi-postcode chip input */
+          <div
+            className="relative flex items-center flex-wrap gap-1.5 flex-1 min-w-[200px] bg-slate-800 border border-slate-700 rounded-xl px-2.5 py-1.5 cursor-text focus-within:border-emerald-500"
+            onClick={() => postcodeInputRef.current?.focus()}
+          >
+            <Search size={14} className="text-slate-500 shrink-0" />
+            {postcodeTags.map(tag => (
+              <span key={tag} className="flex items-center gap-1 bg-emerald-500/20 text-emerald-300 text-xs font-medium px-2 py-0.5 rounded-lg">
+                {tag}
+                <button type="button" onClick={e => { e.stopPropagation(); removePostcodeTag(tag); }} className="hover:text-white">
+                  <X size={11} />
+                </button>
+              </span>
+            ))}
+            <input
+              ref={postcodeInputRef}
+              type="text"
+              placeholder={postcodeTags.length === 0 ? 'Postcode, e.g. WD18, LU4' : ''}
+              value={postcodeInput}
+              onChange={e => setPostcodeInput(e.target.value.toUpperCase())}
+              onKeyDown={handlePostcodeKeyDown}
+              onBlur={() => addPostcodeTag(postcodeInput)}
+              className="flex-1 min-w-[80px] bg-transparent text-sm text-slate-200 placeholder-slate-500 focus:outline-none py-0.5"
+            />
+          </div>
+        )}
+
+        {/* Radius search input (shown when not already in radius mode) */}
+        {!isRadiusMode && (
+          <div className="flex items-center gap-1.5 bg-slate-800 border border-slate-700 rounded-xl px-2.5 py-1.5 focus-within:border-emerald-500">
+            <MapPin size={14} className="text-slate-500 shrink-0" />
+            <select
+              value={filters.radius_miles ?? 20}
+              onChange={e => onChange({ ...filters, radius_miles: Number(e.target.value), page: 1 })}
+              className="bg-transparent text-xs text-slate-300 focus:outline-none"
+            >
+              {RADIUS_OPTIONS.map(r => (
+                <option key={r} value={r}>{r} mi</option>
+              ))}
+            </select>
+            <input
+              ref={radiusInputRef}
+              type="text"
+              placeholder="Center postcode…"
+              value={radiusInput}
+              onChange={e => setRadiusInput(e.target.value.toUpperCase())}
+              onKeyDown={handleRadiusKeyDown}
+              onBlur={() => radiusInput.trim() && applyRadius(radiusInput, filters.radius_miles || 20)}
+              className="w-28 bg-transparent text-sm text-slate-200 placeholder-slate-500 focus:outline-none"
+            />
+          </div>
+        )}
 
         {/* Source */}
         <select

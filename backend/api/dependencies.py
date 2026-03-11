@@ -30,7 +30,7 @@ def get_db() -> Generator:
 class PropertyFilters:
     def __init__(
         self,
-        postcode: Optional[str] = Query(None, description="Postcode prefix filter"),
+        postcode: Optional[str] = Query(None, description="Postcode prefix filter (comma-separated)"),
         town: Optional[str] = Query(None),
         county: Optional[str] = Query(None),
         property_type: Optional[str] = Query(None, description="detached|semi-detached|terraced|flat"),
@@ -48,6 +48,9 @@ class PropertyFilters:
         sort_dir: str = Query('desc', description="asc|desc"),
         page: int = Query(1, ge=1),
         page_size: int = Query(20, ge=1, le=100),
+        # Radius search (mutually exclusive with postcode chips)
+        center_postcode: Optional[str] = Query(None, description="Center postcode for radius search"),
+        radius_miles: Optional[float] = Query(None, ge=0.5, le=100, description="Radius in miles"),
     ):
         self.postcode = postcode
         self.town = town
@@ -67,3 +70,5 @@ class PropertyFilters:
         self.sort_dir = sort_dir
         self.page = page
         self.page_size = page_size
+        self.center_postcode = center_postcode
+        self.radius_miles = radius_miles

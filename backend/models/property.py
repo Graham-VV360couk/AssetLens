@@ -8,6 +8,7 @@ from datetime import datetime
 from .base import Base, TimestampMixin
 
 
+
 class Property(Base, TimestampMixin):
     """
     Core property records with investment tracking
@@ -44,6 +45,17 @@ class Property(Base, TimestampMixin):
     # Review tracking (6-month suppression)
     is_reviewed = Column(Boolean, default=False, nullable=False)
     reviewed_at = Column(DateTime)
+
+    # Coordinates (geocoded via postcodes.io)
+    latitude = Column(Float, nullable=True, index=True)
+    longitude = Column(Float, nullable=True, index=True)
+
+    # EPC cache — populated by epc_service on first lookup
+    epc_floor_area_sqm  = Column(Float, nullable=True)
+    epc_property_type   = Column(String(50), nullable=True)
+    epc_energy_rating   = Column(String(5), nullable=True)
+    epc_inspection_date = Column(Date, nullable=True)
+    epc_matched_at      = Column(DateTime, nullable=True)  # None = not yet matched
 
     # Description
     description = Column(Text)

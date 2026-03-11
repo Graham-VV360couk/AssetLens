@@ -90,6 +90,8 @@ class PropertySummary(BaseModel):
     image_url: Optional[str]
     score: Optional[PropertyScoreSchema]
     ai_insight: Optional[PropertyAIInsightSchema]
+    # Populated only when radius search is active
+    distance_miles: Optional[float] = None
 
 
 class PropertyDetail(PropertySummary):

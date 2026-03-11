@@ -2,6 +2,7 @@
 import json
 import logging
 from datetime import datetime
+from math import cos, radians
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -38,13 +39,40 @@ def _build_query(db: Session, filters: PropertyFilters):
 
     if filters.status:
         q = q.filter(Property.status == filters.status)
-    if filters.postcode:
+
+    # Radius search takes precedence over postcode chip filter
+    if filters.center_postcode and filters.radius_miles:
+        from backend.services.geocoder import geocode_postcode
+        coords = geocode_postcode(filters.center_postcode)
+        if coords:
+            clat, clon = coords
+            lat_d = filters.radius_miles / 69.0
+            lon_d = filters.radius_miles / (69.0 * cos(radians(clat)))
+            # Bounding-box pre-filter (uses index on lat/lon)
+            q = q.filter(
+                Property.latitude.isnot(None),
+                Property.latitude.between(clat - lat_d, clat + lat_d),
+                Property.longitude.between(clon - lon_d, clon + lon_d),
+            )
+            # Exact haversine distance filter
+            dist_expr = (3959 * func.acos(
+                func.least(1.0,
+                    func.cos(func.radians(clat)) *
+                    func.cos(func.radians(Property.latitude)) *
+                    func.cos(func.radians(Property.longitude) - func.radians(clon)) +
+                    func.sin(func.radians(clat)) *
+                    func.sin(func.radians(Property.latitude))
+                )
+            ))
+            q = q.filter(dist_expr <= filters.radius_miles)
+    elif filters.postcode:
         districts = [p.strip().upper() for p in filters.postcode.split(',') if p.strip()]
         if len(districts) == 1:
             q = q.filter(Property.postcode.ilike(f"{districts[0]}%"))
         else:
             from sqlalchemy import or_ as _or_
             q = q.filter(_or_(*[Property.postcode.ilike(f"{d}%") for d in districts]))
+
     if filters.town:
         q = q.filter(Property.town.ilike(f"%{filters.town}%"))
     if filters.county:
@@ -85,6 +113,20 @@ def _build_query(db: Session, filters: PropertyFilters):
     return q
 
 
+def _compute_distance_miles(clat: float, clon: float, lat: Optional[float], lon: Optional[float]) -> Optional[float]:
+    """Haversine distance in miles between center and a property coordinate."""
+    if lat is None or lon is None:
+        return None
+    import math
+    R = 3959.0
+    dlat = math.radians(lat - clat)
+    dlon = math.radians(lon - clon)
+    a = (math.sin(dlat / 2) ** 2 +
+         math.cos(math.radians(clat)) * math.cos(math.radians(lat)) *
+         math.sin(dlon / 2) ** 2)
+    return round(R * 2 * math.asin(math.sqrt(a)), 2)
+
+
 @router.get('', response_model=PropertyListResponse)
 def list_properties(
     filters: PropertyFilters = Depends(),
@@ -104,8 +146,23 @@ def list_properties(
     offset = (filters.page - 1) * filters.page_size
     items = q.offset(offset).limit(filters.page_size).all()
 
+    # Compute distance_miles when radius filter is active
+    center_coords = None
+    if filters.center_postcode and filters.radius_miles:
+        from backend.services.geocoder import geocode_postcode
+        center_coords = geocode_postcode(filters.center_postcode)
+
+    summaries = []
+    for p in items:
+        s = PropertySummary.model_validate(p)
+        if center_coords:
+            s.distance_miles = _compute_distance_miles(
+                center_coords[0], center_coords[1], p.latitude, p.longitude
+            )
+        summaries.append(s)
+
     result = PropertyListResponse(
-        items=[PropertySummary.model_validate(p) for p in items],
+        items=summaries,
         total=total,
         page=filters.page,
         page_size=filters.page_size,

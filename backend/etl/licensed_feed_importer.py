@@ -106,6 +106,9 @@ class LicensedFeedImporter:
                 source_id=str(normalized.get('source_id', '')),
                 source_url=normalized.get('source_url', ''),
             )
+            # Backfill coordinates if missing
+            if duplicate.latitude is None and duplicate.postcode:
+                self._geocode_property(duplicate)
             self.stats['updated'] += 1
         else:
             prop = Property(
@@ -129,7 +132,20 @@ class LicensedFeedImporter:
                 source_id=str(normalized.get('source_id', '')),
                 source_url=normalized.get('source_url', ''),
             )
+            # Geocode on first import
+            if prop.postcode:
+                self._geocode_property(prop)
             self.stats['new'] += 1
+
+    def _geocode_property(self, prop: Property):
+        """Geocode a property's postcode and store lat/lon. Silently skips on error."""
+        try:
+            from backend.services.geocoder import geocode_postcode
+            coords = geocode_postcode(prop.postcode)
+            if coords:
+                prop.latitude, prop.longitude = coords
+        except Exception as e:
+            logger.debug("Geocode failed for postcode %s: %s", prop.postcode, e)
 
 
 def main():
