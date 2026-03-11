@@ -100,6 +100,14 @@ class PropertyDetail(PropertySummary):
     sources: List[PropertySourceSchema] = []
     sales_history: List[SalesHistoryItem] = []
     auctions: List[AuctionSchema] = []
+    # EPC cache fields
+    epc_energy_rating:        Optional[str] = None
+    epc_potential_rating:     Optional[str] = None
+    epc_floor_area_sqm:       Optional[float] = None
+    epc_inspection_date:      Optional[datetime] = None
+    epc_matched_at:           Optional[datetime] = None
+    epc_compliance_cost_low:  Optional[int] = None
+    epc_compliance_cost_high: Optional[int] = None
 
 
 class PropertyListResponse(BaseModel):

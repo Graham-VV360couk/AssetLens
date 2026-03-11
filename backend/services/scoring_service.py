@@ -118,8 +118,21 @@ class PropertyScoringService:
             elif flood_risk == "medium":
                 flood_penalty = 3.0
 
+        # 6b. EPC compliance penalty — F/G rated properties cannot be rented without
+        # mandatory improvement work. Deduct up to 15 pts proportional to cost burden.
+        epc_penalty = 0.0
+        if (prop.epc_energy_rating or '').upper() in ('F', 'G'):
+            compliance_cost = prop.epc_compliance_cost_high or prop.epc_compliance_cost_low
+            if compliance_cost and prop.asking_price and prop.asking_price > 0:
+                # Scale: every 1% of asking price in mandatory costs = ~0.3 pt penalty, capped at 15
+                cost_pct = compliance_cost / prop.asking_price * 100
+                epc_penalty = min(15.0, cost_pct * 0.3)
+            else:
+                # Non-compliant but no cost data yet — apply a default 5-pt warning
+                epc_penalty = 5.0
+
         # 7. Composite score
-        investment_score = price_score + yield_score + area_trend_score + hmo_score - flood_penalty
+        investment_score = price_score + yield_score + area_trend_score + hmo_score - flood_penalty - epc_penalty
 
         # 8. Price band
         price_band = self._classify_price_band(price_deviation_pct)

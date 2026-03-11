@@ -4,7 +4,8 @@ import { motion } from 'framer-motion';
 import {
   ArrowLeft, MapPin, Bed, Bath, Square, CheckCircle, Circle,
   ExternalLink, Calendar, Building2, AlertTriangle, Brain,
-  ThumbsUp, ThumbsDown, Lightbulb, Play, Droplets, Zap, Pencil, Check, X
+  ThumbsUp, ThumbsDown, Lightbulb, Play, Droplets, Zap, Pencil, Check, X,
+  Flame, TrendingUp, WrenchIcon
 } from 'lucide-react';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
@@ -280,6 +281,127 @@ function AIInsightPanel({ propertyId, insight: initialInsight }) {
             </p>
           )}
         </div>
+      )}
+    </motion.div>
+  );
+}
+
+const EPC_RATING_COLORS = {
+  A: 'bg-emerald-600 text-white',
+  B: 'bg-emerald-500 text-white',
+  C: 'bg-green-500 text-white',
+  D: 'bg-yellow-400 text-slate-900',
+  E: 'bg-amber-500 text-white',
+  F: 'bg-orange-600 text-white',
+  G: 'bg-red-700 text-white',
+};
+
+function EPCRatingBadge({ rating, label }) {
+  const cls = EPC_RATING_COLORS[rating?.toUpperCase()] || 'bg-slate-700 text-slate-400';
+  return (
+    <div className="text-center">
+      <div className={`inline-flex items-center justify-center w-10 h-10 rounded-lg text-lg font-extrabold ${cls}`}>
+        {rating || '?'}
+      </div>
+      {label && <div className="text-slate-500 text-xs mt-1">{label}</div>}
+    </div>
+  );
+}
+
+function EPCPanel({ property }) {
+  const {
+    epc_energy_rating: current,
+    epc_potential_rating: potential,
+    epc_floor_area_sqm,
+    epc_inspection_date,
+    epc_compliance_cost_low: costLow,
+    epc_compliance_cost_high: costHigh,
+  } = property;
+
+  if (!current && !epc_floor_area_sqm) return null;
+
+  const nonCompliant = current && ['F', 'G'].includes(current.toUpperCase());
+  const hasCost = costLow != null || costHigh != null;
+
+  const fmt = v => v != null ? `£${v.toLocaleString('en-GB')}` : null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.11 }}
+      className={`border rounded-2xl p-6 ${nonCompliant
+        ? 'bg-red-950/30 border-red-800/40'
+        : 'bg-slate-900 border-slate-800'}`}
+    >
+      <div className="flex items-center gap-2 mb-4">
+        <Flame size={16} className={nonCompliant ? 'text-red-400' : 'text-amber-400'} />
+        <h2 className="text-white font-semibold">Energy Performance Certificate</h2>
+        {epc_inspection_date && (
+          <span className="text-xs text-slate-500">
+            Inspected {new Date(epc_inspection_date).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}
+          </span>
+        )}
+        {nonCompliant && (
+          <span className="ml-auto flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border bg-red-500/15 border-red-500/40 text-red-300">
+            <AlertTriangle size={11} /> Non-compliant for rental
+          </span>
+        )}
+      </div>
+
+      <div className="flex items-center gap-6 mb-5">
+        <EPCRatingBadge rating={current} label="Current" />
+        {potential && potential !== current && (
+          <>
+            <div className="flex flex-col items-center gap-1">
+              <TrendingUp size={16} className="text-slate-500" />
+              <span className="text-slate-600 text-xs">potential</span>
+            </div>
+            <EPCRatingBadge rating={potential} label="Potential" />
+          </>
+        )}
+        {epc_floor_area_sqm && (
+          <div className="ml-4 text-center">
+            <div className="text-white font-bold text-lg">{Math.round(epc_floor_area_sqm)} m²</div>
+            <div className="text-slate-500 text-xs">Floor Area</div>
+          </div>
+        )}
+      </div>
+
+      {nonCompliant && (
+        <div className="rounded-xl border border-red-800/40 bg-red-950/40 p-4 space-y-2">
+          <div className="flex items-center gap-2 text-red-300 text-sm font-medium">
+            <WrenchIcon size={14} /> EPC Compliance Work Required
+          </div>
+          <p className="text-slate-400 text-xs leading-relaxed">
+            Properties rated {current} cannot be legally rented under the Minimum Energy Efficiency
+            Standards (MEES). Improvement work must be completed before letting.
+          </p>
+          {hasCost && (
+            <div className="grid grid-cols-2 gap-3 mt-3">
+              <div className="bg-slate-900/60 rounded-lg p-3">
+                <div className="text-slate-500 text-xs mb-0.5">Est. Cost (Low)</div>
+                <div className="text-amber-400 font-bold">{fmt(costLow) ?? '—'}</div>
+              </div>
+              <div className="bg-slate-900/60 rounded-lg p-3">
+                <div className="text-slate-500 text-xs mb-0.5">Est. Cost (High)</div>
+                <div className="text-red-400 font-bold">{fmt(costHigh) ?? '—'}</div>
+              </div>
+            </div>
+          )}
+          {!hasCost && (
+            <p className="text-slate-600 text-xs">
+              Import EPC recommendations data to see estimated improvement costs.
+            </p>
+          )}
+        </div>
+      )}
+
+      {!nonCompliant && current && (
+        <p className="text-slate-500 text-xs">
+          Rating {current} — compliant for rental (minimum E required).
+          {potential && potential !== current && ` Could reach ${potential} with improvements.`}
+        </p>
       )}
     </motion.div>
   );
@@ -668,6 +790,9 @@ export default function PropertyDetail() {
 
       {/* Property Attribute Profile */}
       <PropertyProfileCard propertyId={id} />
+
+      {/* EPC Panel */}
+      <EPCPanel property={property} />
 
       {/* PropertyData Enrichment Panel */}
       <PropertyDataPanel propertyId={id} score={property.score} />

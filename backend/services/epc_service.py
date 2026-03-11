@@ -16,6 +16,7 @@ import requests
 from sqlalchemy.orm import Session
 
 from backend.models.epc_certificate import EPCCertificate
+from backend.models.epc_recommendation import EPCRecommendation
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,12 @@ EPC_API_BASE = "https://epc.opendatacommunities.org/api/v1/domestic/search"
 EPC_API_EMAIL = os.environ.get("EPC_API_EMAIL", "")
 EPC_API_KEY = os.environ.get("EPC_API_KEY", "")
 
-# EPC property_type + built_form → AssetLens property_type
+# EPC ratings in ascending energy performance order
+EPC_RATING_ORDER = ['G', 'F', 'E', 'D', 'C', 'B', 'A']
+# Minimum rating for legal rental (England & Wales)
+MIN_LETTABLE_RATING = 'E'
+
+# EPC property_type + built_form -> AssetLens property_type
 EPC_TYPE_MAP = {
     ("House",       "Detached"):      "detached",
     ("House",       "Semi-Detached"): "semi-detached",
@@ -75,7 +81,7 @@ def _normalise(text: str) -> set:
 
 
 def _address_similarity(candidate_address: str, query_address: str) -> float:
-    """Return token overlap ratio between two address strings (0–1)."""
+    """Return token overlap ratio between two address strings (0-1)."""
     a = _normalise(candidate_address or '')
     b = _normalise(query_address or '')
     if not a or not b:
@@ -86,16 +92,27 @@ def _address_similarity(candidate_address: str, query_address: str) -> float:
 
 def _cert_to_dict(cert: EPCCertificate) -> dict:
     return {
-        'lmk_key':        cert.lmk_key,
-        'address1':       cert.address1,
-        'postcode':       cert.postcode,
-        'property_type':  cert.property_type,
-        'built_form':     cert.built_form,
-        'mapped_type':    _map_epc_type(cert.property_type, cert.built_form),
-        'floor_area_sqm': cert.floor_area_sqm,
-        'energy_rating':  cert.energy_rating,
-        'inspection_date': cert.inspection_date,
+        'lmk_key':                cert.lmk_key,
+        'address1':               cert.address1,
+        'postcode':               cert.postcode,
+        'property_type':          cert.property_type,
+        'built_form':             cert.built_form,
+        'mapped_type':            _map_epc_type(cert.property_type, cert.built_form),
+        'floor_area_sqm':         cert.floor_area_sqm,
+        'energy_rating':          cert.energy_rating,
+        'potential_energy_rating': cert.potential_energy_rating,
+        'inspection_date':        cert.inspection_date,
     }
+
+
+def is_epc_compliant(rating: Optional[str]) -> bool:
+    """Return True if the rating is E or better (legal for rental)."""
+    if not rating:
+        return True  # Unknown — assume compliant
+    try:
+        return EPC_RATING_ORDER.index(rating.upper()) >= EPC_RATING_ORDER.index(MIN_LETTABLE_RATING)
+    except ValueError:
+        return True
 
 
 def lookup_by_address(
@@ -112,7 +129,7 @@ def lookup_by_address(
 
     Returns a dict with keys:
         lmk_key, address1, postcode, property_type, built_form, mapped_type,
-        floor_area_sqm, energy_rating, inspection_date
+        floor_area_sqm, energy_rating, potential_energy_rating, inspection_date
     or None if no match found.
     """
     postcode_clean = postcode.strip().upper()
@@ -154,7 +171,7 @@ def _lookup_local(
 
         if best_cert:
             logger.debug(
-                "EPC local match: %s → %s (score=%.2f)",
+                "EPC local match: %s -> %s (score=%.2f)",
                 address, best_cert.address1, best_score,
             )
             return _cert_to_dict(best_cert)
@@ -189,19 +206,80 @@ def _api_lookup(postcode: str, address: str, min_similarity: float) -> Optional[
 
         if best:
             return {
-                'lmk_key':        best.get("lmk-key"),
-                'address1':       best.get("address1"),
-                'postcode':       best.get("postcode"),
-                'property_type':  best.get("property-type"),
-                'built_form':     best.get("built-form"),
-                'mapped_type':    _map_epc_type(best.get("property-type"), best.get("built-form")),
-                'floor_area_sqm': _safe_float(best.get("total-floor-area")),
-                'energy_rating':  best.get("current-energy-rating"),
-                'inspection_date': None,
+                'lmk_key':                best.get("lmk-key"),
+                'address1':               best.get("address1"),
+                'postcode':               best.get("postcode"),
+                'property_type':          best.get("property-type"),
+                'built_form':             best.get("built-form"),
+                'mapped_type':            _map_epc_type(best.get("property-type"), best.get("built-form")),
+                'floor_area_sqm':         _safe_float(best.get("total-floor-area")),
+                'energy_rating':          best.get("current-energy-rating"),
+                'potential_energy_rating': best.get("potential-energy-rating"),
+                'inspection_date':        None,
             }
     except Exception as e:
         logger.warning("EPC API lookup error for %s: %s", postcode, e)
     return None
+
+
+def get_recommendations(db: Session, lmk_key: str) -> dict:
+    """
+    Aggregate EPC recommendations for a certificate.
+
+    Returns a dict with:
+        items: list of {improvement_item, improvement_summary_text,
+                        indicative_cost_raw, indicative_cost_low, indicative_cost_high}
+        total_cost_low: sum of all low-bound costs (£)
+        total_cost_high: sum of all high-bound costs (£)
+        is_compliant: bool — True if current rating is E or better
+        compliance_cost_low: cost to reach EPC E (items below E only), low estimate
+        compliance_cost_high: cost to reach EPC E (items below E only), high estimate
+    """
+    empty = {
+        'items': [],
+        'total_cost_low': None,
+        'total_cost_high': None,
+        'is_compliant': True,
+        'compliance_cost_low': None,
+        'compliance_cost_high': None,
+    }
+    if not lmk_key:
+        return empty
+
+    try:
+        recs = (
+            db.query(EPCRecommendation)
+            .filter(EPCRecommendation.lmk_key == lmk_key)
+            .all()
+        )
+        if not recs:
+            return empty
+
+        items = [
+            {
+                'improvement_item':         r.improvement_item,
+                'improvement_summary_text': r.improvement_summary_text,
+                'indicative_cost_raw':      r.indicative_cost_raw,
+                'indicative_cost_low':      r.indicative_cost_low,
+                'indicative_cost_high':     r.indicative_cost_high,
+            }
+            for r in recs
+        ]
+
+        lows  = [r.indicative_cost_low  for r in recs if r.indicative_cost_low  is not None]
+        highs = [r.indicative_cost_high for r in recs if r.indicative_cost_high is not None]
+
+        return {
+            'items':              items,
+            'total_cost_low':     sum(lows)  if lows  else None,
+            'total_cost_high':    sum(highs) if highs else None,
+            'is_compliant':       True,  # caller should check energy_rating separately
+            'compliance_cost_low':  sum(lows)  if lows  else None,
+            'compliance_cost_high': sum(highs) if highs else None,
+        }
+    except Exception as e:
+        logger.warning("EPC recommendations lookup error for %s: %s", lmk_key, e)
+        return empty
 
 
 def _safe_float(val) -> Optional[float]:

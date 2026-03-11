@@ -51,11 +51,14 @@ class Property(Base, TimestampMixin):
     longitude = Column(Float, nullable=True, index=True)
 
     # EPC cache — populated by epc_service on first lookup
-    epc_floor_area_sqm  = Column(Float, nullable=True)
-    epc_property_type   = Column(String(50), nullable=True)
-    epc_energy_rating   = Column(String(5), nullable=True)
-    epc_inspection_date = Column(Date, nullable=True)
-    epc_matched_at      = Column(DateTime, nullable=True)  # None = not yet matched
+    epc_floor_area_sqm      = Column(Float, nullable=True)
+    epc_property_type       = Column(String(50), nullable=True)
+    epc_energy_rating       = Column(String(5), nullable=True)
+    epc_potential_rating    = Column(String(5), nullable=True)   # best achievable after improvements
+    epc_inspection_date     = Column(Date, nullable=True)
+    epc_matched_at          = Column(DateTime, nullable=True)  # None = not yet matched
+    epc_compliance_cost_low  = Column(Integer, nullable=True)   # £ to reach EPC E (low estimate)
+    epc_compliance_cost_high = Column(Integer, nullable=True)   # £ to reach EPC E (high estimate)
 
     # Description
     description = Column(Text)

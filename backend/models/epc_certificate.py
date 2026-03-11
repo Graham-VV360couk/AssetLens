@@ -19,9 +19,10 @@ class EPCCertificate(Base, TimestampMixin):
     uprn            = Column(String(20), index=True, nullable=True)
     property_type   = Column(String(50))   # House, Flat, Maisonette, Bungalow
     built_form      = Column(String(50))   # Detached, Semi-Detached, Mid-Terrace, End-Terrace
-    floor_area_sqm  = Column(Float)
-    energy_rating   = Column(String(5))
-    inspection_date = Column(Date)
+    floor_area_sqm          = Column(Float)
+    energy_rating           = Column(String(5))
+    potential_energy_rating = Column(String(5), nullable=True)
+    inspection_date         = Column(Date)
 
     __table_args__ = (
         Index('ix_epc_postcode', 'postcode'),

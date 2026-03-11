@@ -269,11 +269,17 @@ class PropertyAttributeEstimator:
                     if epc.get('mapped_type'):
                         facts['epc_property_type'] = epc['mapped_type']
                     # Cache results on the Property row to avoid re-querying
-                    prop.epc_floor_area_sqm  = epc.get('floor_area_sqm')
-                    prop.epc_property_type   = epc.get('mapped_type')
-                    prop.epc_energy_rating   = epc.get('energy_rating')
-                    prop.epc_inspection_date = epc.get('inspection_date')
-                    prop.epc_matched_at      = datetime.utcnow()
+                    prop.epc_floor_area_sqm      = epc.get('floor_area_sqm')
+                    prop.epc_property_type       = epc.get('mapped_type')
+                    prop.epc_energy_rating       = epc.get('energy_rating')
+                    prop.epc_potential_rating    = epc.get('potential_energy_rating')
+                    prop.epc_inspection_date     = epc.get('inspection_date')
+                    prop.epc_matched_at          = datetime.utcnow()
+                    # Pull recommendations to cache compliance costs
+                    if epc.get('lmk_key') and (epc.get('energy_rating') or '') in ('F', 'G'):
+                        recs = epc_service.get_recommendations(self.db, epc['lmk_key'])
+                        prop.epc_compliance_cost_low  = recs.get('compliance_cost_low')
+                        prop.epc_compliance_cost_high = recs.get('compliance_cost_high')
                     self.db.flush()
                 else:
                     # Mark as attempted (epc_matched_at = now, no data) so we

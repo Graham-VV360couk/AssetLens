@@ -13,6 +13,7 @@ from .scraper_run_log import ScraperRunLog
 from .property_ai_insight import PropertyAIInsight
 from .property_attribute_profile import PropertyAttributeProfile
 from .epc_certificate import EPCCertificate
+from .epc_recommendation import EPCRecommendation
 
 __all__ = [
     'Base',
@@ -28,4 +29,5 @@ __all__ = [
     'PropertyAIInsight',
     'PropertyAttributeProfile',
     'EPCCertificate',
+    'EPCRecommendation',
 ]
