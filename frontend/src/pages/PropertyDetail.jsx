@@ -5,7 +5,7 @@ import {
   ArrowLeft, MapPin, Bed, Bath, Square, CheckCircle, Circle,
   ExternalLink, Calendar, Building2, AlertTriangle, Brain,
   ThumbsUp, ThumbsDown, Lightbulb, Play, Droplets, Zap, Pencil, Check, X,
-  Flame, TrendingUp, WrenchIcon
+  Flame, TrendingUp, WrenchIcon, PoundSterling, Copy
 } from 'lucide-react';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
@@ -407,6 +407,87 @@ function EPCPanel({ property }) {
   );
 }
 
+const WHARF_URL = 'https://propertyfundingplatform.com/WharfFinancial#!/';
+
+function FundingQuoteButton({ property, score }) {
+  const [open, setOpen] = useState(false);
+
+  const isBmv = score?.price_band === 'brilliant' || score?.price_band === 'good';
+  const isHmo = property.property_type?.toLowerCase().includes('hmo') ||
+    (score?.hmo_opportunity_score > 5);
+  const purchaseCosts = property.asking_price ? Math.round(property.asking_price * 0.05) : null;
+
+  const rows = [
+    { label: 'Loan type',       value: 'Bridging → PURCHASE/RE-FI' },
+    { label: 'Main residence',  value: 'No' },
+    { label: 'Postcode',        value: property.postcode || '—' },
+    { label: 'Plot type',       value: 'Existing Build' },
+    { label: 'Current use',     value: isHmo ? 'Licenced HMO' : 'Pure Residential' },
+    { label: 'BMV purchase',    value: isBmv ? 'Yes' : 'No' },
+    { label: 'Purchase price',  value: property.asking_price ? `£${property.asking_price.toLocaleString('en-GB')}` : '—' },
+    { label: 'Purchase costs',  value: purchaseCosts ? `£${purchaseCosts.toLocaleString('en-GB')} (5%)` : '—' },
+    { label: 'Loan term',       value: '12 months' },
+    { label: 'Max loan',        value: 'Yes' },
+  ];
+
+  const copyAll = () => {
+    const text = rows.map(r => `${r.label}: ${r.value}`).join('\n');
+    navigator.clipboard.writeText(text);
+    toast.success('Copied to clipboard');
+  };
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-1.5 text-xs bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded-lg px-3 py-1.5 transition-colors"
+      >
+        <PoundSterling size={11} /> Get Funding Quote
+      </button>
+
+      {open && (
+        <>
+          {/* backdrop */}
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-9 z-50 w-72 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-white text-sm font-semibold">Wharf Financial — enter these values</span>
+              <button onClick={() => setOpen(false)} className="text-slate-500 hover:text-white"><X size={14} /></button>
+            </div>
+
+            <div className="space-y-1.5 mb-3">
+              {rows.map(({ label, value }) => (
+                <div key={label} className="flex justify-between text-xs">
+                  <span className="text-slate-500">{label}</span>
+                  <span className="text-slate-200 font-medium text-right max-w-[150px]">{value}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex gap-2 border-t border-slate-800 pt-3">
+              <button
+                onClick={copyAll}
+                className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white border border-slate-700 rounded-lg px-2.5 py-1.5 transition-colors"
+              >
+                <Copy size={10} /> Copy
+              </button>
+              <a
+                href={WHARF_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setOpen(false)}
+                className="flex-1 flex items-center justify-center gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg px-3 py-1.5 transition-colors font-medium"
+              >
+                <ExternalLink size={10} /> Open Wharf Financial
+              </a>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 const UK_POSTCODE = /^[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}$/i;
 
 function PostcodeEditor({ propertyId, currentPostcode, onSaved }) {
@@ -602,18 +683,21 @@ export default function PropertyDetail() {
             {property.county && <><span>·</span><span>{property.county}</span></>}
           </div>
         </div>
-        <button
-          onClick={toggleReview}
-          disabled={reviewLoading}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
-            property.is_reviewed
-              ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
-              : 'bg-slate-800 border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700'
-          }`}
-        >
-          {reviewLoading ? <LoadingSpinner size={14} /> : property.is_reviewed ? <CheckCircle size={14} /> : <Circle size={14} />}
-          {property.is_reviewed ? 'Reviewed' : 'Mark Reviewed'}
-        </button>
+        <div className="flex items-center gap-2">
+          <FundingQuoteButton property={property} score={score} />
+          <button
+            onClick={toggleReview}
+            disabled={reviewLoading}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+              property.is_reviewed
+                ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
+                : 'bg-slate-800 border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700'
+            }`}
+          >
+            {reviewLoading ? <LoadingSpinner size={14} /> : property.is_reviewed ? <CheckCircle size={14} /> : <Circle size={14} />}
+            {property.is_reviewed ? 'Reviewed' : 'Mark Reviewed'}
+          </button>
+        </div>
       </div>
 
       {/* Main grid */}
