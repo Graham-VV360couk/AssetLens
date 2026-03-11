@@ -41,7 +41,7 @@ export default function ComparableSalesTable({ data, guidePrice }) {
                   )}
                 </td>
                 <td className="py-2 pr-3 text-slate-400">
-                  {row.sale_date ? new Date(row.sale_date).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }) : '—'}
+                  {row.sale_date ? new Date(row.sale_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
                 </td>
                 <td className="py-2 pr-3 text-right font-semibold text-slate-200">
                   {formatCurrency(row.sale_price, true)}

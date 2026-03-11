@@ -207,18 +207,14 @@ class LandRegistryImporter:
 
                         # Batch insert when batch_size reached
                         if len(batch) >= batch_size:
-                            self.session.bulk_save_objects(batch)
-                            self.session.commit()
-                            records_imported += len(batch)
+                            records_imported += self._upsert_batch(batch)
                             batch = []
 
                         pbar.update(1)
 
                 # Insert remaining records
                 if batch:
-                    self.session.bulk_save_objects(batch)
-                    self.session.commit()
-                    records_imported += len(batch)
+                    records_imported += self._upsert_batch(batch)
 
             logger.info(f"Imported {records_imported} records from {csv_path}")
             return records_imported
@@ -227,6 +223,21 @@ class LandRegistryImporter:
             logger.error(f"Error importing {csv_path}: {e}")
             self.session.rollback()
             raise
+
+    def _upsert_batch(self, batch: list) -> int:
+        """Insert batch with ON CONFLICT DO NOTHING on transaction_id (idempotent re-runs)."""
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        if not batch:
+            return 0
+        rows = [
+            {c.key: getattr(obj, c.key) for c in obj.__table__.columns}
+            for obj in batch
+        ]
+        stmt = pg_insert(SalesHistory.__table__).values(rows)
+        stmt = stmt.on_conflict_do_nothing(index_elements=['transaction_id'])
+        result = self.session.execute(stmt)
+        self.session.commit()
+        return result.rowcount if result.rowcount >= 0 else len(rows)
 
     def import_year_range(self, start_year: int, end_year: int, batch_size: int = 5000) -> int:
         """
