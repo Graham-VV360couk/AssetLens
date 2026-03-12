@@ -35,19 +35,21 @@ def main():
         )
         logger.info("Properties needing geocoding: %d", total)
 
+        # Fetch all IDs upfront so failed geocodes don't recycle into the query
+        all_ids = [
+            row[0] for row in
+            db.query(Property.id)
+            .filter(Property.latitude.is_(None), Property.postcode.isnot(None))
+            .all()
+        ]
+
         processed = 0
         updated = 0
         failed = 0
 
-        while True:
-            props = (
-                db.query(Property)
-                .filter(Property.latitude.is_(None), Property.postcode.isnot(None))
-                .limit(BATCH_SIZE)
-                .all()
-            )
-            if not props:
-                break
+        for i in range(0, len(all_ids), BATCH_SIZE):
+            batch_ids = all_ids[i:i + BATCH_SIZE]
+            props = db.query(Property).filter(Property.id.in_(batch_ids)).all()
 
             for prop in props:
                 coords = geocode_postcode(prop.postcode)

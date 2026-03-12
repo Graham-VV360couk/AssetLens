@@ -183,7 +183,7 @@ def _bulk_upsert_certs(db, rows: list) -> int:
 
 
 def _bulk_insert_recs(db, rows: list) -> int:
-    """Bulk insert recommendation rows (no unique constraint — just insert)."""
+    """Bulk insert recommendation rows, skipping duplicates by (lmk_key, improvement_item)."""
     if not rows:
         return 0
     from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -191,10 +191,11 @@ def _bulk_insert_recs(db, rows: list) -> int:
 
     now = datetime.utcnow()
     for row in rows:
-        row.setdefault('created_at', now)
-        row.setdefault('updated_at', now)
+        row['created_at'] = row.get('created_at') or now
+        row['updated_at'] = row.get('updated_at') or now
 
     stmt = pg_insert(EPCRecommendation.__table__).values(rows)
+    stmt = stmt.on_conflict_do_nothing(constraint='uq_epc_rec_lmk_key_item')
     result = db.execute(stmt)
     return result.rowcount if result.rowcount >= 0 else len(rows)
 
