@@ -112,3 +112,4 @@ temp/
 # Backup Files
 *.bak
 *.backup
+.worktrees/
