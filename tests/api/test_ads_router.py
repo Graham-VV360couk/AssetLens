@@ -37,12 +37,14 @@ def test_imgbb_upload_raises_on_api_failure():
 
 def test_imgbb_upload_raises_on_http_error():
     from backend.services.imgbb_client import ImgBBClient
+    import httpx
     client = ImgBBClient(api_key='test-key')
 
     mock_response = MagicMock()
-    mock_response.status_code = 500
-    mock_response.raise_for_status.side_effect = Exception('HTTP 500')
+    mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        '500 Server Error', request=MagicMock(), response=MagicMock()
+    )
 
     with patch('backend.services.imgbb_client.httpx.post', return_value=mock_response):
-        with pytest.raises(Exception):
+        with pytest.raises(httpx.HTTPStatusError):
             client.upload(b'bytes', filename='img.jpg')

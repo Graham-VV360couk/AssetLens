@@ -27,5 +27,9 @@ class ImgBBClient:
         data = response.json()
         if not data.get('success'):
             msg = data.get('error', {}).get('message', 'unknown error')
+            logger.error('ImgBB upload failed: %s', msg)
             raise RuntimeError(f'ImgBB upload failed: {msg}')
-        return data['data']['url']
+        url = data.get('data', {}).get('url')
+        if not url:
+            raise RuntimeError('ImgBB upload succeeded but returned no URL')
+        return url
