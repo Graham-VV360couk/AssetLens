@@ -104,13 +104,18 @@ def test_submit_requires_token(test_client):
 
 def test_submit_stores_pending(test_client, tmp_config):
     fake_image = b'\x89PNG\r\n' + b'fake' * 100
+    mobile_url = 'https://i.ibb.co/mobile.jpg'
+    desktop_url = 'https://i.ibb.co/desktop.jpg'
 
     with patch('backend.services.imgbb_client.httpx.post') as mock_post:
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.json.return_value = {'success': True, 'data': {'url': 'https://i.ibb.co/mobile.jpg'}}
-        mock_resp.raise_for_status = MagicMock()
-        mock_post.return_value = mock_resp
+        def make_resp(url):
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.json.return_value = {'success': True, 'data': {'url': url}}
+            resp.raise_for_status = MagicMock()
+            return resp
+
+        mock_post.side_effect = [make_resp(mobile_url), make_resp(desktop_url)]
 
         response = test_client.post(
             '/api/ads/submit',
@@ -131,6 +136,9 @@ def test_submit_stores_pending(test_client, tmp_config):
     config = json.loads(open(tmp_config).read())
     assert config['pending']['advertiser_name'] == 'Test Co'
     assert config['pending']['strapline'] == 'Bridging from 0.49%'
+    assert config['pending']['background_image_mobile'] == mobile_url
+    assert config['pending']['background_image_desktop'] == desktop_url
+    assert config['pending']['enabled'] is True
 
 
 def test_submit_rejects_if_pending_exists(test_client, tmp_config):

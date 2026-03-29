@@ -86,7 +86,7 @@ async def submit_ad(
     # Notify admin by email (best-effort — don't fail submission if email fails)
     try:
         svc = EmailAlertService()
-        svc._send_simple(
+        svc.send_notification(
             subject=f'AssetLens: New ad submission from {advertiser_name}',
             body=f'A new advertisement has been submitted by {advertiser_name}.\n\nStrapline: {strapline}\nCTA: {cta_label} → {cta_url}\n\nReview and approve at /admin/ads',
         )
@@ -107,13 +107,12 @@ def approve_ad(
 ):
     """Admin approves or rejects the pending ad."""
     config = _load_config()
+    if config.get('pending') is None:
+        raise HTTPException(status_code=404, detail='No pending submission')
     if body.action == 'approve':
-        if config.get('pending') is None:
-            raise HTTPException(status_code=404, detail='No pending submission to approve')
         config['live'] = config['pending']
         config['live']['enabled'] = True
-        config['pending'] = None
-    else:  # reject
-        config['pending'] = None
+    config['pending'] = None
     _save_config(config)
-    return {'status': body.action + 'd', 'live': config['live']}
+    status_map = {'approve': 'approved', 'reject': 'rejected'}
+    return {'status': status_map[body.action], 'live': config['live']}
