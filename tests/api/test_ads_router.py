@@ -48,3 +48,149 @@ def test_imgbb_upload_raises_on_http_error():
     with patch('backend.services.imgbb_client.httpx.post', return_value=mock_response):
         with pytest.raises(httpx.HTTPStatusError):
             client.upload(b'bytes', filename='img.jpg')
+
+
+# ── Router tests ──────────────────────────────────────────────────────────────
+
+import json
+import os
+import tempfile
+import pytest
+from fastapi.testclient import TestClient
+
+
+@pytest.fixture
+def tmp_config(tmp_path):
+    """Fixture: temp ad_config.json with no live ad and no pending."""
+    config = {
+        'live': {
+            'enabled': False, 'advertiser_name': '', 'strapline': '', 'cta_label': '',
+            'cta_url': '', 'logo_url': '', 'background_image_mobile': '',
+            'background_image_desktop': '', 'background_colour_fallback': '#1a1a2e',
+            'text_colour': '#ffffff'
+        },
+        'pending': None
+    }
+    p = tmp_path / 'ad_config.json'
+    p.write_text(json.dumps(config))
+    return str(p)
+
+
+@pytest.fixture
+def test_client(tmp_config, monkeypatch):
+    monkeypatch.setenv('AD_SUBMIT_TOKEN', 'submit-secret')
+    monkeypatch.setenv('AD_ADMIN_TOKEN', 'admin-secret')
+    monkeypatch.setenv('IMGBB_API_KEY', 'test-imgbb-key')
+
+    from backend.api.routers import ads as ads_module
+    monkeypatch.setattr(ads_module, 'CONFIG_PATH', tmp_config)
+
+    from backend.api.main import app
+    return TestClient(app)
+
+
+def test_get_config_returns_live_slot(test_client):
+    response = test_client.get('/api/ads/config')
+    assert response.status_code == 200
+    data = response.json()
+    assert 'enabled' in data
+    assert 'pending' not in data  # pending is never exposed
+
+
+def test_submit_requires_token(test_client):
+    response = test_client.post('/api/ads/submit', data={})
+    assert response.status_code == 401
+
+
+def test_submit_stores_pending(test_client, tmp_config):
+    fake_image = b'\x89PNG\r\n' + b'fake' * 100
+
+    with patch('backend.services.imgbb_client.httpx.post') as mock_post:
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {'success': True, 'data': {'url': 'https://i.ibb.co/mobile.jpg'}}
+        mock_resp.raise_for_status = MagicMock()
+        mock_post.return_value = mock_resp
+
+        response = test_client.post(
+            '/api/ads/submit',
+            headers={'X-Submit-Token': 'submit-secret'},
+            data={
+                'advertiser_name': 'Test Co',
+                'strapline': 'Bridging from 0.49%',
+                'cta_label': 'Get a Quote',
+                'cta_url': 'https://testco.com',
+            },
+            files={
+                'image_mobile': ('mobile.jpg', fake_image, 'image/jpeg'),
+                'image_desktop': ('desktop.jpg', fake_image, 'image/jpeg'),
+            },
+        )
+
+    assert response.status_code == 200
+    config = json.loads(open(tmp_config).read())
+    assert config['pending']['advertiser_name'] == 'Test Co'
+    assert config['pending']['strapline'] == 'Bridging from 0.49%'
+
+
+def test_submit_rejects_if_pending_exists(test_client, tmp_config):
+    """Cannot submit a second ad when one is already pending approval."""
+    existing = json.loads(open(tmp_config).read())
+    existing['pending'] = {'advertiser_name': 'Existing Co', 'strapline': 'Existing'}
+    open(tmp_config, 'w').write(json.dumps(existing))
+
+    response = test_client.post(
+        '/api/ads/submit',
+        headers={'X-Submit-Token': 'submit-secret'},
+        data={'advertiser_name': 'New Co', 'strapline': 'New', 'cta_label': 'Go', 'cta_url': 'https://x.com'},
+        files={
+            'image_mobile': ('m.jpg', b'img', 'image/jpeg'),
+            'image_desktop': ('d.jpg', b'img', 'image/jpeg'),
+        },
+    )
+    assert response.status_code == 409
+
+
+def test_approve_requires_token(test_client):
+    response = test_client.post('/api/ads/approve', json={'action': 'approve'})
+    assert response.status_code == 401
+
+
+def test_approve_promotes_pending_to_live(test_client, tmp_config):
+    pending_ad = {
+        'enabled': True, 'advertiser_name': 'Approved Co', 'strapline': 'Great deal',
+        'cta_label': 'Go', 'cta_url': 'https://approved.com', 'logo_url': 'https://i.ibb.co/logo.png',
+        'background_image_mobile': 'https://i.ibb.co/m.jpg',
+        'background_image_desktop': 'https://i.ibb.co/d.jpg',
+        'background_colour_fallback': '#000', 'text_colour': '#fff'
+    }
+    existing = json.loads(open(tmp_config).read())
+    existing['pending'] = pending_ad
+    open(tmp_config, 'w').write(json.dumps(existing))
+
+    response = test_client.post(
+        '/api/ads/approve',
+        headers={'X-Admin-Token': 'admin-secret'},
+        json={'action': 'approve'},
+    )
+    assert response.status_code == 200
+    config = json.loads(open(tmp_config).read())
+    assert config['live']['advertiser_name'] == 'Approved Co'
+    assert config['live']['enabled'] is True
+    assert config['pending'] is None
+
+
+def test_reject_clears_pending(test_client, tmp_config):
+    existing = json.loads(open(tmp_config).read())
+    existing['pending'] = {'advertiser_name': 'Rejected Co'}
+    open(tmp_config, 'w').write(json.dumps(existing))
+
+    response = test_client.post(
+        '/api/ads/approve',
+        headers={'X-Admin-Token': 'admin-secret'},
+        json={'action': 'reject'},
+    )
+    assert response.status_code == 200
+    config = json.loads(open(tmp_config).read())
+    assert config['pending'] is None
+    assert config['live']['advertiser_name'] == ''  # original empty live untouched

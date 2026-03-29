@@ -184,3 +184,25 @@ class EmailAlertService:
         except Exception as e:
             logger.error("Failed to send email: %s", e)
             return False
+
+    def _send_simple(self, subject: str, body: str) -> bool:
+        """Send a plain-text email. Used for internal notifications."""
+        if not self.to_email or not self.smtp_password:
+            logger.warning("Email not configured — skipping notification")
+            return False
+        try:
+            msg = MIMEMultipart('alternative')
+            msg['Subject'] = subject
+            msg['From'] = self.from_email
+            msg['To'] = self.to_email
+            msg.attach(MIMEText(body, 'plain'))
+            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
+                server.ehlo()
+                server.starttls()
+                server.login(self.smtp_user, self.smtp_password)
+                server.sendmail(self.from_email, [self.to_email], msg.as_string())
+            logger.info("Notification email sent: %s", subject)
+            return True
+        except Exception as e:
+            logger.error("Failed to send notification email: %s", e)
+            return False
