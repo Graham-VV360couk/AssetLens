@@ -124,7 +124,7 @@ class LicensedFeedImporter:
                 bedrooms=normalized.get('bedrooms'),
                 bathrooms=normalized.get('bathrooms'),
                 asking_price=normalized.get('asking_price'),
-                status='active',
+                status='active',  # may be updated below by _apply_status_change
                 date_found=datetime.utcnow(),
                 description=normalized.get('description', ''),
             )

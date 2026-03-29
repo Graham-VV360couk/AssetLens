@@ -82,8 +82,8 @@ class StaleListingChecker:
         except Exception:
             return 'active'  # Can't reach API — assume still active, retry next week
 
-        if not fresh:
-            # Not found in API — possibly delisted; treat as sold without price
+        if fresh is None:
+            # Not found in API (404) — possibly delisted; treat as sold without price
             self._apply_sold(prop, sold_price=None)
             return 'sold'
 
