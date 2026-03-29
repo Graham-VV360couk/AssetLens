@@ -38,7 +38,11 @@ def _build_query(db: Session, filters: PropertyFilters):
         )
 
     if filters.status:
-        q = q.filter(Property.status == filters.status)
+        statuses = [s.strip() for s in filters.status.split(',') if s.strip()]
+        if len(statuses) == 1:
+            q = q.filter(Property.status == statuses[0])
+        else:
+            q = q.filter(Property.status.in_(statuses))
 
     # Radius search takes precedence over postcode chip filter
     if filters.center_postcode and filters.radius_miles:
