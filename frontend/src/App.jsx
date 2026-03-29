@@ -7,6 +7,8 @@ import Properties from './pages/Properties';
 import PropertyDetail from './pages/PropertyDetail';
 import Alerts from './pages/Alerts';
 import Scrapers from './pages/Scrapers';
+import AdSubmit from './pages/AdSubmit';
+import AdminAds from './pages/AdminAds';
 
 export default function App() {
   return (
@@ -26,6 +28,8 @@ export default function App() {
           <Route path="alerts" element={<Alerts />} />
           <Route path="scrapers" element={<Scrapers />} />
         </Route>
+        <Route path="/advertise" element={<AdSubmit />} />
+        <Route path="/admin/ads" element={<AdminAds />} />
       </Routes>
     </BrowserRouter>
   );
