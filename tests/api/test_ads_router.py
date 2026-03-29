@@ -1,5 +1,9 @@
 """Tests for ads router and ImgBB client."""
+import json
+import os
+import tempfile
 import pytest
+from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
 
 
@@ -51,12 +55,6 @@ def test_imgbb_upload_raises_on_http_error():
 
 
 # ── Router tests ──────────────────────────────────────────────────────────────
-
-import json
-import os
-import tempfile
-import pytest
-from fastapi.testclient import TestClient
 
 
 @pytest.fixture
@@ -224,7 +222,7 @@ def test_admin_config_returns_full_config(test_client, tmp_config):
     assert data['pending']['advertiser_name'] == 'Pending Co'
 
 
-def test_toggle_live_enables_bar(test_client):
+def test_toggle_live_enables_bar(test_client, tmp_config):
     response = test_client.patch(
         '/api/ads/live',
         headers={'X-Admin-Token': 'admin-secret'},
@@ -232,3 +230,5 @@ def test_toggle_live_enables_bar(test_client):
     )
     assert response.status_code == 200
     assert response.json()['enabled'] is True
+    config = json.loads(open(tmp_config).read())
+    assert config['live']['enabled'] is True
