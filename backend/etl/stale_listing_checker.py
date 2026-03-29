@@ -109,7 +109,7 @@ class StaleListingChecker:
             address=prop.address,
             postcode=prop.postcode,
             sale_date=date.today(),
-            sale_price=sold_price if sold_price is not None else 0,
+            sale_price=sold_price,
             property_type=prop.property_type or 'unknown',
         ))
 

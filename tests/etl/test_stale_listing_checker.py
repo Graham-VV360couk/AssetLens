@@ -61,6 +61,7 @@ def test_sold_outcome_archives_property():
     db.add.assert_called_once()
     record = db.add.call_args[0][0]
     assert isinstance(record, SalesHistory)
+    assert record.sale_price is None
 
 
 def test_stc_outcome_updates_status():
