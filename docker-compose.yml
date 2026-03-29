@@ -117,6 +117,7 @@ services:
       - REDIS_PORT=6379
       - APP_ENV=${APP_ENV:-development}
       - DEBUG=${DEBUG:-true}
+      - PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright
     volumes:
       - ./backend:/app/backend
       - ./database:/app/database
