@@ -4,6 +4,7 @@ import {
   LayoutDashboard, Building2, Bell, Globe, Menu, X, Activity
 } from 'lucide-react';
 import clsx from 'clsx';
+import AdBar from '../ads/AdBar';
 
 const navItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -90,10 +91,11 @@ export default function Layout() {
         </header>
 
         {/* Content */}
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1 overflow-y-auto pb-[50px]">
           <Outlet />
         </main>
       </div>
+      <AdBar />
     </div>
   );
 }
