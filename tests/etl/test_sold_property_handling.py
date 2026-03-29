@@ -58,3 +58,72 @@ def test_sold_price_passed_through():
     }
     result = client.normalize_property_data(raw)
     assert result['sold_price'] == 285000
+
+
+# ── Importer branching tests ──────────────────────────────────────────────────
+
+from backend.models.property import Property, PropertySource
+from backend.models.sales_history import SalesHistory
+
+
+def _make_property(status='active', asking_price=300000):
+    prop = Property(
+        id=1, address='1 Test St', postcode='SW1A 1AA',
+        property_type='flat', bedrooms=2, status=status,
+        asking_price=asking_price, date_found=date.today(),
+    )
+    return prop
+
+
+def _make_importer(db):
+    from backend.etl.licensed_feed_importer import LicensedFeedImporter
+    importer = LicensedFeedImporter.__new__(LicensedFeedImporter)
+    importer.db = db
+    importer.stats = {'new': 0, 'updated': 0, 'errors': 0, 'skipped': 0, 'fetched': 0}
+    return importer
+
+
+def test_stc_status_updates_property_status():
+    """An STC property in the feed updates the property status to 'stc' and stays visible."""
+    db = MagicMock()
+    prop = _make_property(status='active')
+    importer = _make_importer(db)
+    importer._apply_status_change(prop, 'stc', sold_price=None)
+    assert prop.status == 'stc'
+    assert prop.date_sold is None
+
+
+def test_sold_status_archives_property():
+    """A sold property gets archived and date_sold set."""
+    db = MagicMock()
+    prop = _make_property(status='active', asking_price=300000)
+    importer = _make_importer(db)
+    importer._apply_status_change(prop, 'sold', sold_price=285000)
+    assert prop.status == 'sold'
+    assert prop.date_sold == date.today()
+    db.add.assert_called_once()
+    sales_record = db.add.call_args[0][0]
+    assert isinstance(sales_record, SalesHistory)
+    assert sales_record.sale_price == 285000
+
+
+def test_sold_without_price_uses_none():
+    """A sold property with no confirmed price stores sale_price=None."""
+    db = MagicMock()
+    prop = _make_property(status='active', asking_price=300000)
+    importer = _make_importer(db)
+    importer._apply_status_change(prop, 'sold', sold_price=None)
+    assert prop.status == 'sold'
+    db.add.assert_called_once()
+    sales_record = db.add.call_args[0][0]
+    assert sales_record.sale_price is None
+
+
+def test_active_status_no_change():
+    """An active property coming through the feed makes no status change."""
+    db = MagicMock()
+    prop = _make_property(status='active')
+    importer = _make_importer(db)
+    importer._apply_status_change(prop, 'active', sold_price=None)
+    assert prop.status == 'active'
+    db.add.assert_not_called()
