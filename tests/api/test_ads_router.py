@@ -202,3 +202,33 @@ def test_reject_clears_pending(test_client, tmp_config):
     config = json.loads(open(tmp_config).read())
     assert config['pending'] is None
     assert config['live']['advertiser_name'] == ''  # original empty live untouched
+
+
+def test_admin_config_requires_token(test_client):
+    response = test_client.get('/api/ads/admin-config')
+    assert response.status_code == 401
+
+
+def test_admin_config_returns_full_config(test_client, tmp_config):
+    existing = json.loads(open(tmp_config).read())
+    existing['pending'] = {'advertiser_name': 'Pending Co'}
+    open(tmp_config, 'w').write(json.dumps(existing))
+
+    response = test_client.get(
+        '/api/ads/admin-config',
+        headers={'X-Admin-Token': 'admin-secret'},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert 'pending' in data
+    assert data['pending']['advertiser_name'] == 'Pending Co'
+
+
+def test_toggle_live_enables_bar(test_client):
+    response = test_client.patch(
+        '/api/ads/live',
+        headers={'X-Admin-Token': 'admin-secret'},
+        json={'enabled': True},
+    )
+    assert response.status_code == 200
+    assert response.json()['enabled'] is True

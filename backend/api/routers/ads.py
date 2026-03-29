@@ -116,3 +116,22 @@ def approve_ad(
     _save_config(config)
     status_map = {'approve': 'approved', 'reject': 'rejected'}
     return {'status': status_map[body.action], 'live': config['live']}
+
+
+@router.get('/admin-config')
+def get_admin_config(_: None = Depends(_require_admin_token)):
+    """Return full config including pending slot. Admin only."""
+    return _load_config()
+
+
+class LiveToggleRequest(BaseModel):
+    enabled: bool
+
+
+@router.patch('/live')
+def toggle_live(body: LiveToggleRequest, _: None = Depends(_require_admin_token)):
+    """Enable or disable the live ad bar."""
+    config = _load_config()
+    config['live']['enabled'] = body.enabled
+    _save_config(config)
+    return {'status': 'updated', 'enabled': body.enabled}
