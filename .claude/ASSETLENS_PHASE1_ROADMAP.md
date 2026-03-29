@@ -1,6 +1,6 @@
 # AssetLens — Phase 1 Roadmap
-**Status**: Pre-funding polish, quick wins, and revenue-ready hooks  
-**Last Updated**: 2026-03-28  
+**Status**: COMPLETE
+**Last Updated**: 2026-03-29
 **Scope**: Self-funded work only — no dependency on external investment
 
 ---
@@ -35,8 +35,8 @@ Phase 2 onwards is gated on development funding and is not scoped here.
 
 ---
 
-### 2. Property Attribute Estimation Engine
-**Source**: `ASSETLENS_PROPERTY_ATTRIBUTE_ESTIMATION_BUILD_SPEC.md`  
+### 2. Property Attribute Estimation Engine *(moved to Phase 2)*
+**Source**: `ASSETLENS_PROPERTY_ATTRIBUTE_ESTIMATION_BUILD_SPEC.md`
 **Priority**: High — significant differentiator, spec already written
 
 This is the most substantial Phase 1 build item. Full spec exists. Summary of scope:
@@ -136,8 +136,8 @@ Rule-based inference first, ML later. Configurable heuristic ruleset. Examples:
 
 ---
 
-### 3. Motivated Seller Signal Layer
-**Source**: Conversation — competitor analysis vs Property Filter  
+### 3. Motivated Seller Signal Layer *(moved to Phase 2)*
+**Source**: Conversation — competitor analysis vs Property Filter
 **Priority**: Medium-High — directly addresses gap vs Property Filter
 
 Add the following data signals to AssetLens, used as **intelligence inputs** (scoring + map layers) rather than deal-hunting triggers.
@@ -289,10 +289,12 @@ Suggested order of work:
 
 ---
 
-## Phase 2+ (Funding-Dependent — Not Scoped Here)
+## Phase 2 (Funding-Dependent)
 
-The following are acknowledged but explicitly deferred until development funding is confirmed:
+The following are scoped for Phase 2 once development funding is confirmed:
 
+- **Motivated Seller Signal Layer** — price reduction tracking, sales fallen through, long-listed properties, heat map intelligence layers
+- **Property Attribute Estimation Engine** — estimates bedrooms, floor area, property type with confidence scoring and source traceability (full spec in `ASSETLENS_PROPERTY_ATTRIBUTE_ESTIMATION_BUILD_SPEC.md`)
 - Multi-advertiser ad slot system with rotation and impression tracking
 - Full ML pipeline for property attribute estimation (satellite imagery, title plan OCR)
 - HMO suitability scoring module
