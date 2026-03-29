@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # PostgreSQL Database - Optimized for nationwide property data
   postgres:
@@ -118,6 +116,7 @@ services:
       - APP_ENV=${APP_ENV:-development}
       - DEBUG=${DEBUG:-true}
       - PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright
+      - ASSETLENS_IN_CONTAINER=1
     volumes:
       - ./backend:/app/backend
       - ./database:/app/database
@@ -130,8 +129,14 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "pgrep", "cron"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     restart: unless-stopped
-    command: sh -c "crontab /app/scripts/crontab.txt && cron -f"
+    command: sh -c "printenv | grep -v '^no_proxy' > /etc/environment && crontab /app/scripts/crontab.txt && cron -f"
 
   # Frontend (React)
   frontend:
