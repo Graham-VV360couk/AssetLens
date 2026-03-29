@@ -6,9 +6,8 @@
     "cta_label": "",
     "cta_url": "",
     "logo_url": "",
-    "background_image_mobile": "",
-    "background_image_desktop": "",
-    "background_colour_fallback": "#1a1a2e",
+    "colour_1": "#1a1a2e",
+    "colour_2": "#1a1a2e",
     "text_colour": "#ffffff"
   },
   "pending": null

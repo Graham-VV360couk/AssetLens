@@ -2,7 +2,7 @@
 import json
 import logging
 import os
-from typing import Literal
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
 from pydantic import BaseModel
@@ -53,20 +53,19 @@ async def submit_ad(
     strapline: str = Form(...),
     cta_label: str = Form(...),
     cta_url: str = Form(...),
-    image_mobile: UploadFile = File(...),
-    image_desktop: UploadFile = File(...),
+    colour_1: Optional[str] = Form('#1a1a2e'),
+    colour_2: Optional[str] = Form('#1a1a2e'),
+    logo: UploadFile = File(...),
     _: None = Depends(_require_submit_token),
 ):
-    """Advertiser submits a new ad. Uploads images to ImgBB, stores as pending."""
+    """Advertiser submits a new ad. Uploads logo to ImgBB, stores as pending."""
     config = _load_config()
     if config.get('pending') is not None:
         raise HTTPException(status_code=409, detail='A submission is already awaiting approval')
 
     imgbb = ImgBBClient()
-    mobile_bytes = await image_mobile.read()
-    desktop_bytes = await image_desktop.read()
-    mobile_url = imgbb.upload(mobile_bytes, filename=image_mobile.filename or 'mobile.jpg')
-    desktop_url = imgbb.upload(desktop_bytes, filename=image_desktop.filename or 'desktop.jpg')
+    logo_bytes = await logo.read()
+    logo_url = imgbb.upload(logo_bytes, filename=logo.filename or 'logo.png')
 
     pending = {
         'enabled': True,
@@ -74,10 +73,9 @@ async def submit_ad(
         'strapline': strapline,
         'cta_label': cta_label,
         'cta_url': cta_url,
-        'logo_url': '',
-        'background_image_mobile': mobile_url,
-        'background_image_desktop': desktop_url,
-        'background_colour_fallback': '#1a1a2e',
+        'logo_url': logo_url,
+        'colour_1': colour_1 or '#1a1a2e',
+        'colour_2': colour_2 or '#1a1a2e',
         'text_colour': '#ffffff',
     }
     config['pending'] = pending

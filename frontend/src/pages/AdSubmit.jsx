@@ -7,10 +7,11 @@ export default function AdSubmit() {
     strapline: '',
     cta_label: '',
     cta_url: '',
+    colour_1: '#1a1a2e',
+    colour_2: '#1a1a2e',
     submit_token: '',
   });
-  const [imageMobile, setImageMobile] = useState(null);
-  const [imageDesktop, setImageDesktop] = useState(null);
+  const [logo, setLogo] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
@@ -20,8 +21,8 @@ export default function AdSubmit() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!imageMobile || !imageDesktop) {
-      toast.error('Both mobile and desktop images are required');
+    if (!logo) {
+      toast.error('Please upload your logo');
       return;
     }
 
@@ -32,8 +33,9 @@ export default function AdSubmit() {
       data.append('strapline', form.strapline);
       data.append('cta_label', form.cta_label);
       data.append('cta_url', form.cta_url);
-      data.append('image_mobile', imageMobile);
-      data.append('image_desktop', imageDesktop);
+      data.append('colour_1', form.colour_1);
+      data.append('colour_2', form.colour_2);
+      data.append('logo', logo);
 
       const res = await fetch('/api/ads/submit', {
         method: 'POST',
@@ -91,29 +93,64 @@ export default function AdSubmit() {
 
           <div>
             <label className="block text-slate-400 text-xs font-medium mb-1">
-              Mobile background image <span className="text-slate-500">(640 × 50px, JPG/PNG)</span>
+              Logo <span className="text-slate-500">(PNG or SVG recommended, transparent background)</span>
             </label>
             <input
               type="file"
-              accept="image/jpeg,image/png"
-              onChange={e => setImageMobile(e.target.files[0] || null)}
+              accept="image/png,image/svg+xml,image/jpeg"
+              onChange={e => setLogo(e.target.files[0] || null)}
               className="block w-full text-slate-400 text-sm file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-slate-700 file:text-slate-200 file:text-xs hover:file:bg-slate-600"
               required
             />
           </div>
 
-          <div>
-            <label className="block text-slate-400 text-xs font-medium mb-1">
-              Desktop background image <span className="text-slate-500">(1920 × 50px, JPG/PNG)</span>
-            </label>
-            <input
-              type="file"
-              accept="image/jpeg,image/png"
-              onChange={e => setImageDesktop(e.target.files[0] || null)}
-              className="block w-full text-slate-400 text-sm file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-slate-700 file:text-slate-200 file:text-xs hover:file:bg-slate-600"
-              required
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-slate-400 text-xs font-medium mb-1">
+                Background colour 1 <span className="text-slate-500">(optional)</span>
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  name="colour_1"
+                  value={form.colour_1}
+                  onChange={handleChange}
+                  className="w-10 h-8 rounded cursor-pointer bg-transparent border-0"
+                />
+                <input
+                  type="text"
+                  name="colour_1"
+                  value={form.colour_1}
+                  onChange={handleChange}
+                  maxLength={7}
+                  className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 text-sm focus:outline-none focus:border-emerald-500 font-mono"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-slate-400 text-xs font-medium mb-1">
+                Background colour 2 <span className="text-slate-500">(for gradient)</span>
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  name="colour_2"
+                  value={form.colour_2}
+                  onChange={handleChange}
+                  className="w-10 h-8 rounded cursor-pointer bg-transparent border-0"
+                />
+                <input
+                  type="text"
+                  name="colour_2"
+                  value={form.colour_2}
+                  onChange={handleChange}
+                  maxLength={7}
+                  className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 text-sm focus:outline-none focus:border-emerald-500 font-mono"
+                />
+              </div>
+            </div>
           </div>
+          <p className="text-slate-500 text-xs -mt-1">Set both colours the same for a solid background. Leave as default for dark navy.</p>
 
           <Field label="Submission token" name="submit_token" type="password" value={form.submit_token} onChange={handleChange} required />
 

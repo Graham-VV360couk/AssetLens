@@ -17,7 +17,7 @@ export default function AdBar() {
   if (!ad) return null;
 
   const bgStyle = {
-    backgroundColor: ad.background_colour_fallback || '#1a1a2e',
+    background: `linear-gradient(to right, ${ad.colour_1 || '#1a1a2e'}, ${ad.colour_2 || '#1a1a2e'})`,
     color: ad.text_colour || '#ffffff',
   };
 
@@ -27,23 +27,8 @@ export default function AdBar() {
       style={{ height: '50px', zIndex: 9999, ...bgStyle }}
       className="fixed bottom-0 left-0 right-0 flex items-center overflow-hidden"
     >
-      {/* Background image via picture element */}
-      {(ad.background_image_mobile || ad.background_image_desktop) && (
-        <picture className="absolute inset-0 w-full h-full pointer-events-none">
-          {ad.background_image_desktop && (
-            <source media="(min-width: 1024px)" srcSet={ad.background_image_desktop} />
-          )}
-          <img
-            src={ad.background_image_mobile || ad.background_image_desktop}
-            alt=""
-            className="w-full h-full object-cover"
-            aria-hidden="true"
-          />
-        </picture>
-      )}
-
-      {/* Content — relative so it sits above picture */}
-      <div className="relative flex items-center w-full px-4 lg:pl-64 gap-3">
+      {/* Content */}
+      <div className="flex items-center w-full px-4 lg:pl-64 gap-3">
         {/* Logo */}
         {ad.logo_url && (
           <img

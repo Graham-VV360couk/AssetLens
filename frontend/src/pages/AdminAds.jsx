@@ -164,7 +164,10 @@ export default function AdminAds() {
             <p className="text-slate-500 text-xs mb-2 uppercase tracking-wider font-semibold">Live bar preview</p>
             <div
               className="w-full flex items-center px-4 gap-3 rounded-lg overflow-hidden"
-              style={{ height: '50px', backgroundColor: config.live.background_colour_fallback || '#1a1a2e' }}
+              style={{
+                height: '50px',
+                background: `linear-gradient(to right, ${config.live.colour_1 || '#1a1a2e'}, ${config.live.colour_2 || '#1a1a2e'})`,
+              }}
             >
               {config.live.logo_url && (
                 <img src={config.live.logo_url} alt="" className="h-7 w-auto object-contain flex-shrink-0" />
@@ -195,8 +198,18 @@ function AdPreview({ ad }) {
       <Row label="Strapline" value={ad.strapline} />
       <Row label="CTA" value={`${ad.cta_label} → ${ad.cta_url}`} />
       {ad.logo_url && <Row label="Logo" value={<a href={ad.logo_url} target="_blank" rel="noopener noreferrer" className="text-emerald-400 underline">View</a>} />}
-      <Row label="Mobile bg" value={ad.background_image_mobile ? <a href={ad.background_image_mobile} target="_blank" rel="noopener noreferrer" className="text-emerald-400 underline">View</a> : '—'} />
-      <Row label="Desktop bg" value={ad.background_image_desktop ? <a href={ad.background_image_desktop} target="_blank" rel="noopener noreferrer" className="text-emerald-400 underline">View</a> : '—'} />
+      <Row label="Colour 1" value={
+        <span className="flex items-center gap-2">
+          <span className="inline-block w-4 h-4 rounded" style={{ background: ad.colour_1 || '#1a1a2e' }} />
+          {ad.colour_1 || '#1a1a2e'}
+        </span>
+      } />
+      <Row label="Colour 2" value={
+        <span className="flex items-center gap-2">
+          <span className="inline-block w-4 h-4 rounded" style={{ background: ad.colour_2 || '#1a1a2e' }} />
+          {ad.colour_2 || '#1a1a2e'}
+        </span>
+      } />
     </div>
   );
 }

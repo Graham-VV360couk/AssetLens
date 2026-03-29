@@ -63,8 +63,7 @@ def tmp_config(tmp_path):
     config = {
         'live': {
             'enabled': False, 'advertiser_name': '', 'strapline': '', 'cta_label': '',
-            'cta_url': '', 'logo_url': '', 'background_image_mobile': '',
-            'background_image_desktop': '', 'background_colour_fallback': '#1a1a2e',
+            'cta_url': '', 'logo_url': '', 'colour_1': '#1a1a2e', 'colour_2': '#1a1a2e',
             'text_colour': '#ffffff'
         },
         'pending': None
@@ -101,20 +100,15 @@ def test_submit_requires_token(test_client):
 
 
 def test_submit_stores_pending(test_client, tmp_config):
-    fake_image = b'\x89PNG\r\n' + b'fake' * 100
-    mobile_url = 'https://i.ibb.co/mobile.jpg'
-    desktop_url = 'https://i.ibb.co/desktop.jpg'
+    logo_url = 'https://i.ibb.co/logo.png'
+    fake_logo = b'\x89PNG\r\n' + b'fake' * 100
 
-    with patch('backend.services.imgbb_client.httpx.post') as mock_post:
-        def make_resp(url):
-            resp = MagicMock()
-            resp.status_code = 200
-            resp.json.return_value = {'success': True, 'data': {'url': url}}
-            resp.raise_for_status = MagicMock()
-            return resp
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {'success': True, 'data': {'url': logo_url}}
+    mock_response.raise_for_status = MagicMock()
 
-        mock_post.side_effect = [make_resp(mobile_url), make_resp(desktop_url)]
-
+    with patch('backend.services.imgbb_client.httpx.post', return_value=mock_response):
         response = test_client.post(
             '/api/ads/submit',
             headers={'X-Submit-Token': 'submit-secret'},
@@ -123,10 +117,11 @@ def test_submit_stores_pending(test_client, tmp_config):
                 'strapline': 'Bridging from 0.49%',
                 'cta_label': 'Get a Quote',
                 'cta_url': 'https://testco.com',
+                'colour_1': '#0f172a',
+                'colour_2': '#1e3a5f',
             },
             files={
-                'image_mobile': ('mobile.jpg', fake_image, 'image/jpeg'),
-                'image_desktop': ('desktop.jpg', fake_image, 'image/jpeg'),
+                'logo': ('logo.png', fake_logo, 'image/png'),
             },
         )
 
@@ -134,8 +129,9 @@ def test_submit_stores_pending(test_client, tmp_config):
     config = json.loads(open(tmp_config).read())
     assert config['pending']['advertiser_name'] == 'Test Co'
     assert config['pending']['strapline'] == 'Bridging from 0.49%'
-    assert config['pending']['background_image_mobile'] == mobile_url
-    assert config['pending']['background_image_desktop'] == desktop_url
+    assert config['pending']['logo_url'] == logo_url
+    assert config['pending']['colour_1'] == '#0f172a'
+    assert config['pending']['colour_2'] == '#1e3a5f'
     assert config['pending']['enabled'] is True
 
 
@@ -150,8 +146,7 @@ def test_submit_rejects_if_pending_exists(test_client, tmp_config):
         headers={'X-Submit-Token': 'submit-secret'},
         data={'advertiser_name': 'New Co', 'strapline': 'New', 'cta_label': 'Go', 'cta_url': 'https://x.com'},
         files={
-            'image_mobile': ('m.jpg', b'img', 'image/jpeg'),
-            'image_desktop': ('d.jpg', b'img', 'image/jpeg'),
+            'logo': ('logo.png', b'img', 'image/png'),
         },
     )
     assert response.status_code == 409
@@ -166,9 +161,7 @@ def test_approve_promotes_pending_to_live(test_client, tmp_config):
     pending_ad = {
         'enabled': True, 'advertiser_name': 'Approved Co', 'strapline': 'Great deal',
         'cta_label': 'Go', 'cta_url': 'https://approved.com', 'logo_url': 'https://i.ibb.co/logo.png',
-        'background_image_mobile': 'https://i.ibb.co/m.jpg',
-        'background_image_desktop': 'https://i.ibb.co/d.jpg',
-        'background_colour_fallback': '#000', 'text_colour': '#fff'
+        'colour_1': '#0f172a', 'colour_2': '#1e3a5f', 'text_colour': '#fff'
     }
     existing = json.loads(open(tmp_config).read())
     existing['pending'] = pending_ad
