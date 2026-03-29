@@ -82,6 +82,9 @@ services:
       - APP_ENV=${APP_ENV:-development}
       - DEBUG=${DEBUG:-true}
       - PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright
+      - IMGBB_API_KEY=${IMGBB_API_KEY:-}
+      - AD_SUBMIT_TOKEN=${AD_SUBMIT_TOKEN:-}
+      - AD_ADMIN_TOKEN=${AD_ADMIN_TOKEN:-}
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:
@@ -117,6 +120,9 @@ services:
       - DEBUG=${DEBUG:-true}
       - PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright
       - ASSETLENS_IN_CONTAINER=1
+      - IMGBB_API_KEY=${IMGBB_API_KEY:-}
+      - AD_SUBMIT_TOKEN=${AD_SUBMIT_TOKEN:-}
+      - AD_ADMIN_TOKEN=${AD_ADMIN_TOKEN:-}
     volumes:
       - ./backend:/app/backend
       - ./database:/app/database
