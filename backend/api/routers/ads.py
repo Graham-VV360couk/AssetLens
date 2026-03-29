@@ -133,3 +133,25 @@ def toggle_live(body: LiveToggleRequest, _: None = Depends(_require_admin_token)
     config['live']['enabled'] = body.enabled
     _save_config(config)
     return {'status': 'updated', 'enabled': body.enabled}
+
+
+EMPTY_SLOT = {
+    'enabled': False,
+    'advertiser_name': '',
+    'strapline': '',
+    'cta_label': '',
+    'cta_url': '',
+    'logo_url': '',
+    'colour_1': '#1a1a2e',
+    'colour_2': '#1a1a2e',
+    'text_colour': '#ffffff',
+}
+
+
+@router.post('/clear')
+def clear_live(_: None = Depends(_require_admin_token)):
+    """Clear the live ad slot. The bar goes dark immediately."""
+    config = _load_config()
+    config['live'] = dict(EMPTY_SLOT)
+    _save_config(config)
+    return {'status': 'cleared'}

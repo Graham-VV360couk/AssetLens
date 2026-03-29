@@ -215,6 +215,31 @@ def test_admin_config_returns_full_config(test_client, tmp_config):
     assert data['pending']['advertiser_name'] == 'Pending Co'
 
 
+def test_clear_live_resets_slot(test_client, tmp_config):
+    # Set a live ad first
+    existing = json.loads(open(tmp_config).read())
+    existing['live'] = {
+        'enabled': True, 'advertiser_name': 'Old Co', 'strapline': 'Old strapline',
+        'cta_label': 'Go', 'cta_url': 'https://old.com', 'logo_url': 'https://i.ibb.co/logo.png',
+        'colour_1': '#0f172a', 'colour_2': '#1e3a5f', 'text_colour': '#fff'
+    }
+    open(tmp_config, 'w').write(json.dumps(existing))
+
+    response = test_client.post('/api/ads/clear', headers={'X-Admin-Token': 'admin-secret'})
+    assert response.status_code == 200
+    assert response.json()['status'] == 'cleared'
+
+    config = json.loads(open(tmp_config).read())
+    assert config['live']['enabled'] is False
+    assert config['live']['advertiser_name'] == ''
+    assert config['live']['logo_url'] == ''
+
+
+def test_clear_live_requires_token(test_client):
+    response = test_client.post('/api/ads/clear')
+    assert response.status_code == 401
+
+
 def test_toggle_live_enables_bar(test_client, tmp_config):
     response = test_client.patch(
         '/api/ads/live',

@@ -65,6 +65,21 @@ export default function AdminAds() {
     }
   }
 
+  async function handleClearLive() {
+    if (!window.confirm('Clear the live ad? The bar will go dark immediately. The logo image on ImgBB is not deleted.')) return;
+    try {
+      const res = await fetch('/api/ads/clear', {
+        method: 'POST',
+        headers: { 'X-Admin-Token': token },
+      });
+      if (!res.ok) { toast.error('Failed to clear'); return; }
+      toast.success('Live ad cleared');
+      fetchConfig();
+    } catch {
+      toast.error('Network error');
+    }
+  }
+
   if (!token) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
@@ -117,16 +132,26 @@ export default function AdminAds() {
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-semibold text-white">Live Ad</h2>
-              <button
-                onClick={handleToggleLive}
-                className={`text-xs font-semibold px-3 py-1 rounded-full border transition-colors ${
-                  config.live.enabled
-                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30'
-                    : 'bg-slate-700 text-slate-400 border-slate-600 hover:bg-emerald-500/10 hover:text-emerald-400 hover:border-emerald-500/30'
-                }`}
-              >
-                {config.live.enabled ? 'Enabled — click to disable' : 'Disabled — click to enable'}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleToggleLive}
+                  className={`text-xs font-semibold px-3 py-1 rounded-full border transition-colors ${
+                    config.live.enabled
+                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30'
+                      : 'bg-slate-700 text-slate-400 border-slate-600 hover:bg-emerald-500/10 hover:text-emerald-400 hover:border-emerald-500/30'
+                  }`}
+                >
+                  {config.live.enabled ? 'Enabled — click to disable' : 'Disabled — click to enable'}
+                </button>
+                {config.live.advertiser_name && (
+                  <button
+                    onClick={handleClearLive}
+                    className="text-xs font-semibold px-3 py-1 rounded-full border border-red-500/30 text-red-400 bg-red-500/10 hover:bg-red-500/20 transition-colors"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
             </div>
             <AdPreview ad={config.live} />
           </div>
