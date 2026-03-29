@@ -6,12 +6,12 @@ export default function AdBar() {
   const [ad, setAd] = useState(null);
 
   useEffect(() => {
-    fetch(AD_CONFIG_URL)
+    const controller = new AbortController();
+    fetch(AD_CONFIG_URL, { signal: controller.signal })
       .then(r => r.json())
-      .then(data => {
-        if (data && data.enabled) setAd(data);
-      })
+      .then(data => { if (data?.enabled) setAd(data); })
       .catch(() => {/* silently hide bar on fetch failure */});
+    return () => controller.abort();
   }, []);
 
   if (!ad) return null;
@@ -22,7 +22,8 @@ export default function AdBar() {
   };
 
   return (
-    <div
+    <aside
+      aria-label="Advertisement"
       style={{ height: '50px', zIndex: 9999, ...bgStyle }}
       className="fixed bottom-0 left-0 right-0 flex items-center overflow-hidden"
     >
@@ -61,7 +62,7 @@ export default function AdBar() {
         </p>
 
         {/* CTA */}
-        {ad.cta_url && ad.cta_label && (
+        {ad.cta_url?.startsWith('http') && ad.cta_label && (
           <a
             href={ad.cta_url}
             target="_blank"
@@ -72,6 +73,6 @@ export default function AdBar() {
           </a>
         )}
       </div>
-    </div>
+    </aside>
   );
 }
