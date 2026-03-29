@@ -32,14 +32,12 @@ export default function AdBar() {
           {ad.background_image_desktop && (
             <source media="(min-width: 1024px)" srcSet={ad.background_image_desktop} />
           )}
-          {ad.background_image_mobile && (
-            <img
-              src={ad.background_image_mobile}
-              alt=""
-              className="w-full h-full object-cover"
-              aria-hidden="true"
-            />
-          )}
+          <img
+            src={ad.background_image_mobile || ad.background_image_desktop}
+            alt=""
+            className="w-full h-full object-cover"
+            aria-hidden="true"
+          />
         </picture>
       )}
 
