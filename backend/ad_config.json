@@ -1,0 +1,15 @@
+{
+  "live": {
+    "enabled": false,
+    "advertiser_name": "",
+    "strapline": "",
+    "cta_label": "",
+    "cta_url": "",
+    "logo_url": "",
+    "background_image_mobile": "",
+    "background_image_desktop": "",
+    "background_colour_fallback": "#1a1a2e",
+    "text_colour": "#ffffff"
+  },
+  "pending": null
+}
