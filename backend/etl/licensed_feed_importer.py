@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from backend.models.base import SessionLocal
 from backend.models.property import Property, PropertySource
+from backend.models.sales_history import SalesHistory
 from backend.services.searchland_client import SearchlandClient
 from backend.services.deduplication_service import PropertyDeduplicator
 
@@ -93,6 +94,8 @@ class LicensedFeedImporter:
 
     def _process_property(self, raw: dict):
         normalized = self.client.normalize_property_data(raw)
+        incoming_status = normalized.get('status', 'active')
+        sold_price = normalized.get('sold_price')
         duplicate = self.deduplicator.find_duplicate(
             address=normalized.get('address', ''),
             postcode=normalized.get('postcode', ''),
@@ -109,6 +112,7 @@ class LicensedFeedImporter:
             # Backfill coordinates if missing
             if duplicate.latitude is None and duplicate.postcode:
                 self._geocode_property(duplicate)
+            self._apply_status_change(duplicate, incoming_status, sold_price)
             self.stats['updated'] += 1
         else:
             prop = Property(
@@ -120,7 +124,7 @@ class LicensedFeedImporter:
                 bedrooms=normalized.get('bedrooms'),
                 bathrooms=normalized.get('bathrooms'),
                 asking_price=normalized.get('asking_price'),
-                status='active',
+                status='active',  # may be updated below by _apply_status_change
                 date_found=datetime.utcnow(),
                 description=normalized.get('description', ''),
             )
@@ -135,6 +139,7 @@ class LicensedFeedImporter:
             # Geocode on first import
             if prop.postcode:
                 self._geocode_property(prop)
+            self._apply_status_change(prop, incoming_status, sold_price)
             self.stats['new'] += 1
 
     def _geocode_property(self, prop: Property):
@@ -146,6 +151,27 @@ class LicensedFeedImporter:
                 prop.latitude, prop.longitude = coords
         except Exception as e:
             logger.debug("Geocode failed for postcode %s: %s", prop.postcode, e)
+
+    def _apply_status_change(self, prop: Property, new_status: str, sold_price):
+        """
+        Update property status based on feed signal.
+        - 'stc'  → mark STC, property stays visible
+        - 'sold' → write SalesHistory, archive property
+        - 'active' → no change
+        """
+        if new_status == 'stc':
+            prop.status = 'stc'
+        elif new_status == 'sold':
+            prop.status = 'sold'
+            prop.date_sold = datetime.utcnow().date()
+            self.db.add(SalesHistory(
+                property_id=prop.id,
+                address=prop.address,
+                postcode=prop.postcode,
+                sale_date=datetime.utcnow().date(),
+                sale_price=sold_price,
+                property_type=prop.property_type,
+            ))
 
 
 def main():

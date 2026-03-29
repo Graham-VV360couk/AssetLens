@@ -42,7 +42,7 @@ class PropertyFilters:
         min_yield: Optional[float] = Query(None, ge=0),
         price_band: Optional[str] = Query(None, description="brilliant|good|fair|bad"),
         source: Optional[str] = Query(None, description="Filter by scraper source name"),
-        status: Optional[str] = Query('active'),
+        status: Optional[str] = Query('active,stc'),
         is_reviewed: Optional[bool] = Query(None),
         sort_by: str = Query('investment_score', description="investment_score|asking_price|date_found|yield"),
         sort_dir: str = Query('desc', description="asc|desc"),

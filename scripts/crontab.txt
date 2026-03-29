@@ -9,4 +9,4 @@
 0 6 * * * /bin/bash /app/scripts/send_alerts.sh >> /app/logs/cron_alerts.log 2>&1
 
 # Health check every 15 minutes
-*/15 * * * * curl -sf http://localhost:8000/health > /dev/null || echo "$(date): API health check FAILED" >> /app/logs/health.log
+*/15 * * * * curl -sf http://backend:8000/health > /dev/null || echo "$(date): API health check FAILED" >> /app/logs/health.log

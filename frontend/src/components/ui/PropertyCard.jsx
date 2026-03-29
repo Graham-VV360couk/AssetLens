@@ -48,6 +48,11 @@ export default function PropertyCard({ property }) {
           <div className="flex items-center gap-2 mb-1">
             <span className="text-lg">{propertyTypeIcon(property.property_type)}</span>
             {score && <PriceBandBadge band={score.price_band} size="sm" />}
+            {property.status === 'stc' && (
+              <span className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded border bg-amber-500/20 text-amber-300 border-amber-500/40">
+                STC
+              </span>
+            )}
             {verdict && (
               <span className={clsx('inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded border', VERDICT_STYLE[verdict])}>
                 AI: {verdict.replace('_', ' ')}

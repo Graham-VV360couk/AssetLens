@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y \
     postgresql-client \
     libpq-dev \
     curl \
+    cron \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
@@ -22,6 +23,8 @@ RUN playwright install chromium && (playwright install-deps chromium || true)
 # Copy application code
 COPY backend /app/backend
 COPY database /app/database
+COPY scripts /app/scripts
+RUN chmod +x /app/scripts/*.sh
 
 # Create logs directory
 RUN mkdir -p /app/logs

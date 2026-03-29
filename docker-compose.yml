@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # PostgreSQL Database - Optimized for nationwide property data
   postgres:
@@ -89,6 +87,7 @@ services:
     volumes:
       - ./backend:/app/backend
       - ./database:/app/database
+      - ./scripts:/app/scripts
       - ./logs:/app/logs
     networks:
       - assetlens
@@ -99,6 +98,45 @@ services:
         condition: service_healthy
     restart: unless-stopped
     command: uvicorn backend.api.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Cron Scheduler - Runs ETL jobs and alerts
+  scheduler:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: assetlens_scheduler
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME:-assetlens}
+      - DB_USER=${DB_USER:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD:-postgres}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - APP_ENV=${APP_ENV:-development}
+      - DEBUG=${DEBUG:-true}
+      - PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright
+      - ASSETLENS_IN_CONTAINER=1
+    volumes:
+      - ./backend:/app/backend
+      - ./database:/app/database
+      - ./scripts:/app/scripts
+      - ./logs:/app/logs
+    networks:
+      - assetlens
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "pgrep", "cron"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    command: sh -c "printenv | grep -v '^no_proxy' > /etc/environment && crontab /app/scripts/crontab.txt && cron -f"
 
   # Frontend (React)
   frontend:

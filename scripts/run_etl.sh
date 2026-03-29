@@ -55,6 +55,11 @@ if [ "$(date +%u)" = "7" ]; then
     run_job "Rental Scraper" "$RUN_CMD backend/scrapers/rental_scraper.py" || true
 fi
 
+# Step 4b: Stale listing checker (weekly on Wednesdays)
+if [ "$(date +%u)" = "3" ]; then
+    run_job "Stale Listing Checker" "$RUN_CMD -m backend.etl.stale_listing_checker" || true
+fi
+
 # Step 5: Scoring (daily - depends on fresh data)
 run_job "Daily Scoring" "$RUN_CMD backend/etl/daily_scoring_job.py" || true
 

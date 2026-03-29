@@ -269,6 +269,17 @@ class SearchlandClient:
         logger.info(f"Fetching HMO register (council={council}, postcode={postcode})")
         return self._make_request('hmo-register', params=params)
 
+    _STATUS_MAP = {
+        'for_sale': 'active',
+        'available': 'active',
+        'stc': 'stc',
+        'sold_stc': 'stc',
+        'under_offer': 'stc',
+        'sale_agreed': 'stc',
+        'sold': 'sold',
+        'completed': 'sold',
+    }
+
     def normalize_property_data(self, raw_property: Dict[str, Any]) -> Dict[str, Any]:
         """
         Normalize property data from Searchland API to AssetLens schema
@@ -279,6 +290,9 @@ class SearchlandClient:
         Returns:
             Normalized property dictionary matching our database schema
         """
+        raw_status = (raw_property.get('status') or '').lower()
+        mapped_status = self._STATUS_MAP.get(raw_status, 'active')
+
         return {
             'source_id': raw_property.get('id'),
             'source_name': raw_property.get('source', 'searchland'),  # rightmove, zoopla, etc.
@@ -293,10 +307,11 @@ class SearchlandClient:
             'reception_rooms': raw_property.get('receptions'),
             'floor_area_sqm': raw_property.get('floor_area'),
             'asking_price': raw_property.get('price'),
+            'sold_price': raw_property.get('sold_price'),
             'price_qualifier': raw_property.get('price_qualifier'),
             'description': raw_property.get('description'),
             'date_found': datetime.utcnow().date(),
-            'status': 'active',
+            'status': mapped_status,
             'imported_at': datetime.utcnow()
         }
 
