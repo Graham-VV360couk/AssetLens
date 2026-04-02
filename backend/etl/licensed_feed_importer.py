@@ -102,10 +102,10 @@ class LicensedFeedImporter:
         )
 
         if duplicate:
-            self.deduplicator.merge_property_data(duplicate, normalized)
-            self.deduplicator.add_property_source(
-                duplicate.id,
-                source_name=normalized.get('source', 'searchland'),
+            self.deduplicator.merge_property_data(
+                duplicate,
+                normalized,
+                source_name=normalized.get('source_name', 'searchland'),
                 source_id=str(normalized.get('source_id', '')),
                 source_url=normalized.get('source_url', ''),
             )
@@ -127,6 +127,8 @@ class LicensedFeedImporter:
                 status='active',  # may be updated below by _apply_status_change
                 date_found=datetime.utcnow(),
                 description=normalized.get('description', ''),
+                image_url=normalized.get('image_url'),
+                image_urls=normalized.get('image_urls'),
             )
             self.db.add(prop)
             self.db.flush()
