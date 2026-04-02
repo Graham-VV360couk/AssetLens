@@ -17,6 +17,7 @@ import PriceComparisonChart from '../components/charts/PriceComparisonChart';
 import ComparableSalesTable from '../components/charts/ComparableSalesTable';
 import PriceHistogramChart from '../components/charts/PriceHistogramChart';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
+import ImageGallery from '../components/ui/ImageGallery';
 import { formatCurrency, formatYield, propertyTypeIcon } from '../utils/formatters';
 import PropertyProfileCard from '../components/profile/PropertyProfileCard';
 
@@ -637,19 +638,23 @@ export default function PropertyDetail() {
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-10">
-      {/* Hero image */}
-      {property.image_url && (
-        <div className="h-64 w-full overflow-hidden bg-slate-900 rounded-b-2xl">
-          <img
-            src={property.image_url}
-            alt={property.address}
-            className="w-full h-full object-cover"
-            onError={e => { e.target.parentElement.style.display = 'none'; }}
-          />
+      <ImageGallery
+        imageUrl={property.image_url}
+        imageUrls={property.image_urls}
+        alt={property.address}
+      />
+
+      <div className="px-6 space-y-6">
+      {/* Property description */}
+      {property.description && (
+        <div className="bg-slate-800/50 border border-slate-700/50 rounded-2xl p-5">
+          <h3 className="text-sm font-semibold text-slate-300 mb-2">Description</h3>
+          <p className="text-sm text-slate-400 leading-relaxed whitespace-pre-line">
+            {property.description}
+          </p>
         </div>
       )}
 
-      <div className="px-6 space-y-6">
       {/* Back + header */}
       <div className="flex items-start gap-4">
         <button
