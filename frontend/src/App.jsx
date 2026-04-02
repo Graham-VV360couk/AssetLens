@@ -26,7 +26,11 @@ export default function App() {
           <Route path="properties" element={<Properties />} />
           <Route path="properties/:id" element={<PropertyDetail />} />
           <Route path="alerts" element={<Alerts />} />
-          <Route path="scrapers" element={<Scrapers />} />
+          <Route path="scrapers" element={
+            (process.env.REACT_APP_ADMIN_EMAILS || '').split(',').includes(localStorage.getItem('assetlens_user_email'))
+              ? <Scrapers />
+              : <Navigate to="/dashboard" replace />
+          } />
         </Route>
         <Route path="/advertise" element={<AdSubmit />} />
         <Route path="/admin/ads" element={<AdminAds />} />
