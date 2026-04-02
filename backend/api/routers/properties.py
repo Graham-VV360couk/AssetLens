@@ -10,6 +10,8 @@ from sqlalchemy import func, desc, asc
 from sqlalchemy.orm import Session, joinedload
 
 from backend.api.dependencies import get_db, get_redis, PropertyFilters
+from backend.auth.guards import get_optional_user
+from backend.models.user import User as AuthUser
 from backend.api.schemas import (
     PropertyListResponse, PropertyDetail, PropertySummary,
     SalesHistoryItem, ReviewResponse,
@@ -202,7 +204,11 @@ def get_high_value_properties(
 
 
 @router.get('/{property_id}', response_model=PropertyDetail)
-def get_property(property_id: int, db: Session = Depends(get_db)):
+def get_property(
+    property_id: int,
+    db: Session = Depends(get_db),
+    user = Depends(get_optional_user),
+):
     prop = (
         db.query(Property)
         .options(

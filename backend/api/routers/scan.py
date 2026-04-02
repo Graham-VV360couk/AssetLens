@@ -7,6 +7,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from backend.api.dependencies import get_db
+from backend.auth.guards import require_subscription
+from backend.models.user import User
 from backend.services.scan_service import ScanService
 
 logger = logging.getLogger(__name__)
@@ -20,11 +22,18 @@ class ScanRequest(BaseModel):
 
 
 @router.post("")
-def scan_property(req: ScanRequest, db: Session = Depends(get_db)):
+def scan_property(
+    req: ScanRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_subscription('investor', 'admin', trial_type='property_view')),
+):
     """
     Scan any UK property by address + postcode.
     Returns full intelligence profile (or area-level data if postcode only).
     """
+    if user.subscription_status == 'trial':
+        user.trial_property_views += 1
+        db.commit()
     try:
         svc = ScanService(db)
         result = svc.scan(address=req.address or '', postcode=req.postcode)
