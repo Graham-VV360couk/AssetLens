@@ -38,27 +38,46 @@ CHUNK_SIZE = 10_000
 
 # Map bulk CSV column names -> model column names (certificates)
 CERT_COLUMN_MAP = {
-    'LMK_KEY':                  'lmk_key',
-    'ADDRESS1':                 'address1',
-    'ADDRESS2':                 'address2',
-    'POSTCODE':                 'postcode',
-    'UPRN':                     'uprn',
-    'PROPERTY_TYPE':            'property_type',
-    'BUILT_FORM':               'built_form',
-    'TOTAL_FLOOR_AREA':         'floor_area_sqm',
-    'CURRENT_ENERGY_RATING':    'energy_rating',
-    'POTENTIAL_ENERGY_RATING':  'potential_energy_rating',
-    'INSPECTION_DATE':          'inspection_date',
+    'LMK_KEY':                      'lmk_key',
+    'ADDRESS1':                     'address1',
+    'ADDRESS2':                     'address2',
+    'POSTCODE':                     'postcode',
+    'UPRN':                         'uprn',
+    'PROPERTY_TYPE':                'property_type',
+    'BUILT_FORM':                   'built_form',
+    'TOTAL_FLOOR_AREA':             'floor_area_sqm',
+    'CURRENT_ENERGY_RATING':        'energy_rating',
+    'POTENTIAL_ENERGY_RATING':      'potential_energy_rating',
+    'INSPECTION_DATE':              'inspection_date',
+    # Extended Tier 1 fields
+    'CONSTRUCTION_AGE_BAND':        'construction_age_band',
+    'CURRENT_ENERGY_EFFICIENCY':    'current_energy_efficiency',
+    'POTENTIAL_ENERGY_EFFICIENCY':  'potential_energy_efficiency',
+    'TENURE':                       'tenure',
+    'MAINS_GAS_FLAG':               'mains_gas_flag',
+    'HEATING_COST_CURRENT':         'heating_cost_current',
+    'HEATING_COST_POTENTIAL':       'heating_cost_potential',
+    'HOT_WATER_COST_CURRENT':       'hot_water_cost_current',
+    'HOT_WATER_COST_POTENTIAL':     'hot_water_cost_potential',
+    'LIGHTING_COST_CURRENT':        'lighting_cost_current',
+    'LIGHTING_COST_POTENTIAL':      'lighting_cost_potential',
+    'CO2_EMISSIONS_CURRENT':        'co2_emissions_current',
+    'NUMBER_HABITABLE_ROOMS':       'number_habitable_rooms',
+    'TRANSACTION_TYPE':             'transaction_type',
 }
 CERT_KEEP = list(CERT_COLUMN_MAP.values())
 
 # Map bulk CSV column names -> model column names (recommendations)
 REC_COLUMN_MAP = {
-    'LMK_KEY':                    'lmk_key',
-    'IMPROVEMENT_ITEM':           'improvement_item',
-    'IMPROVEMENT_SUMMARY_TEXT':   'improvement_summary_text',
-    'IMPROVEMENT_DESCR_TEXT':     'improvement_descr_text',
-    'INDICATIVE_COST':            'indicative_cost_raw',
+    'LMK_KEY':                      'lmk_key',
+    'IMPROVEMENT_ITEM':             'improvement_item',
+    'IMPROVEMENT_SUMMARY_TEXT':     'improvement_summary_text',
+    'IMPROVEMENT_DESCR_TEXT':       'improvement_descr_text',
+    'INDICATIVE_COST':              'indicative_cost_raw',
+    # Extended fields
+    'TYPICAL_SAVING':               'typical_saving',
+    'ENERGY_EFFICIENCY_RATING_A':   'efficiency_rating_before',
+    'ENERGY_EFFICIENCY_RATING_B':   'efficiency_rating_after',
 }
 REC_KEEP = list(REC_COLUMN_MAP.values())
 
@@ -119,6 +138,11 @@ def _clean_cert_chunk(chunk: pd.DataFrame) -> pd.DataFrame:
     for col, limit in str_limits.items():
         if col in chunk.columns:
             chunk[col] = chunk[col].astype(str).str[:limit]
+
+    # Compute EPC expiry date (inspection_date + 10 years)
+    if 'inspection_date' in chunk.columns and chunk['inspection_date'].notna().any():
+        chunk['epc_expiry_date'] = pd.to_datetime(chunk['inspection_date'], errors='coerce') + pd.DateOffset(years=10)
+        chunk['epc_expiry_date'] = chunk['epc_expiry_date'].dt.date
 
     chunk = chunk.where(chunk.notna(), other=None)
     return chunk
