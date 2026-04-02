@@ -407,7 +407,7 @@ function EPCPanel({ property }) {
   );
 }
 
-const WHARF_URL = 'https://propertyfundingplatform.com/WharfFinancial#!/';
+const WHARF_URL = 'https://propertyfundingplatform.com/WharfFinancial#!/allloans';
 
 function FundingQuoteButton({ property, score }) {
   const [open, setOpen] = useState(false);
