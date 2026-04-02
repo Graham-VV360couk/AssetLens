@@ -289,9 +289,41 @@ Suggested order of work:
 
 ---
 
-## Phase 2 (Funding-Dependent)
+## Phase 2 — Addendum Sprints (Scoped & Approved 2026-04-02)
 
-The following are scoped for Phase 2 once development funding is confirmed:
+Full design spec: `docs/superpowers/specs/2026-04-02-addendum-implementation-design.md`
+Source documents: `.claude/ASSETLENS_DATA_POINTS_ADDENDUM.md`, `.claude/ASSETLENS_DATA_POINTS_ADDENDUM_001.md`
+
+### Sprint 1: Data Layer
+- [ ] Immediate actions (Wharf Financial URL, gate Data Sources page)
+- [ ] Pipeline fixes (Searchland normaliser images, merge call bug, dedup image handling)
+- [ ] Dedup coverage for uploaded-vs-scraped properties (Sprint 3 dependency)
+- [ ] Frontend: description display + image gallery on PropertyDetail
+- [ ] On-demand property scan endpoint (`POST /api/scan`) — any UK address
+- [ ] Extended EPC fields — migration 021/022, importer extension, colour-coding (slippable to Sprint 2)
+
+### Sprint 2: Auth & Billing (depends on Sprint 1)
+- [ ] User model — `users` + `user_profiles` tables (migrations 023/024)
+- [ ] FastAPI-Users + JWT auth stack (self-hosted, passlib/bcrypt)
+- [ ] Stripe subscriptions — Checkout, webhooks, Customer Portal
+- [ ] Subscription tiers: Investor £99/mo, Auction House £55/mo, Deal Source £55/mo, White Label £199/mo
+- [ ] Free trial gating — 3 property views + 3 AI views, hard paywall
+- [ ] Route guards + access control (backend + frontend)
+- [ ] Investor profile form (financial capacity, portfolio, preferences, GDPR)
+- [ ] Frontend: login, register, account settings, paywall modal
+
+### Sprint 3: Revenue Features (depends on Sprint 2)
+- [ ] Personalised AI deal score — profile-based adjustments, strategy-specific labels
+- [ ] Public listing pages — `/listing/{id}`, `/listings/auction/{username}`, `/listings/deal/{username}`
+- [ ] Field visibility rules — public vs investor access matrix
+- [ ] White-label tier — custom branding, subdomain, colours
+- [ ] Uploader portal — auction house + deal source CSV upload + manual form
+- [ ] Celery worker — Redis broker, upload-triggered AI enrichment
+- [ ] Uploader-controlled field hiding
+
+### Phase 2 — Later (Funding-Dependent)
+
+The following remain unscoped, gated on development funding:
 
 - **Motivated Seller Signal Layer** — price reduction tracking, sales fallen through, long-listed properties, heat map intelligence layers
 - **Property Attribute Estimation Engine** — estimates bedrooms, floor area, property type with confidence scoring and source traceability (full spec in `ASSETLENS_PROPERTY_ATTRIBUTE_ESTIMATION_BUILD_SPEC.md`)
@@ -300,11 +332,12 @@ The following are scoped for Phase 2 once development funding is confirmed:
 - HMO suitability scoring module
 - Direct-to-vendor outreach tools
 - Off-market property sourcing
-- User account tiers / subscription model
 - Mobile app
 - Portfolio management tools
 - Planning history integration
 - Auction data expansion
+- Celery beat scheduler for scheduled re-enrichment
+- Wharf Financial API integration (pre-fill funding quotes from investor profile)
 
 ---
 
@@ -322,8 +355,11 @@ Tasks to complete before the platform is considered production-ready for externa
 |----------|---------|
 | `PROGRESS.md` | Full record of completed Phases 1–7 |
 | `ASSETLENS_PROPERTY_ATTRIBUTE_ESTIMATION_BUILD_SPEC.md` | Detailed build spec for estimation engine |
-| This document | Phase 1 roadmap — pre-funding work |
+| `.claude/ASSETLENS_DATA_POINTS_ADDENDUM.md` | Data points addendum — EPC, profiles, AI score, public listings |
+| `.claude/ASSETLENS_DATA_POINTS_ADDENDUM_001.md` | Amendment 001 — pricing tiers, access matrix, Stripe gating |
+| `docs/superpowers/specs/2026-04-02-addendum-implementation-design.md` | Full implementation design for addendum sprints |
+| This document | Phase 1 roadmap + Phase 2 sprint tracker |
 
 ---
 
-*This document should be updated as bugs are identified and Phase 1 items are completed. Phase 2 scoping begins once funding is confirmed.*
+*Last updated: 2026-04-02. Phase 1 complete. Addendum sprints scoped and approved.*
