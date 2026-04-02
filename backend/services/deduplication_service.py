@@ -206,6 +206,12 @@ class PropertyDeduplicator:
         if new_data.get('county') and not existing_property.county:
             existing_property.county = new_data['county']
 
+        if new_data.get('image_url') and not existing_property.image_url:
+            existing_property.image_url = new_data['image_url']
+
+        if new_data.get('image_urls') and not existing_property.image_urls:
+            existing_property.image_urls = new_data['image_urls']
+
         # Update timestamp
         existing_property.updated_at = datetime.utcnow()
 
