@@ -144,6 +144,37 @@ services:
     restart: unless-stopped
     command: sh -c "printenv | grep -v '^no_proxy' > /etc/environment && crontab /app/scripts/crontab.txt && cron -f"
 
+  # Celery Worker - Async task processing
+  celery_worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: assetlens_celery_worker
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME:-assetlens}
+      - DB_USER=${DB_USER:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD:-postgres}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_URL=redis://redis:6379/0
+      - PROPERTYDATA_API_KEY=${PROPERTYDATA_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - AI_CALL_DELAY=${AI_CALL_DELAY:-2.0}
+    volumes:
+      - ./backend:/app/backend
+      - ./logs:/app/logs
+    networks:
+      - assetlens
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    command: celery -A backend.celery_app worker --loglevel=info --concurrency=2
+
   # Frontend (React)
   frontend:
     build:
