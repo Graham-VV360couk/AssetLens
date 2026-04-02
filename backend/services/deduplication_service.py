@@ -59,28 +59,30 @@ class PropertyDeduplicator:
         for char in chars_to_remove:
             normalized = normalized.replace(char, ' ')
 
-        # Expand common abbreviations
+        # Expand common abbreviations using word-boundary regex so trailing
+        # abbreviations (e.g. "123 High St" with no trailing space) are also
+        # expanded and fuzzy matching scores remain accurate.
+        import re as _re
         abbreviations = {
-            ' ST ': ' STREET ',
-            ' RD ': ' ROAD ',
-            ' AVE ': ' AVENUE ',
-            ' DR ': ' DRIVE ',
-            ' CT ': ' COURT ',
-            ' LN ': ' LANE ',
-            ' PL ': ' PLACE ',
-            ' SQ ': ' SQUARE ',
-            ' TER ': ' TERRACE ',
-            ' CL ': ' CLOSE ',
-            ' APT ': ' APARTMENT ',
-            ' FLT ': ' FLAT ',
+            r'\bST\b': 'STREET',
+            r'\bRD\b': 'ROAD',
+            r'\bAVE\b': 'AVENUE',
+            r'\bDR\b': 'DRIVE',
+            r'\bCT\b': 'COURT',
+            r'\bLN\b': 'LANE',
+            r'\bPL\b': 'PLACE',
+            r'\bSQ\b': 'SQUARE',
+            r'\bTER\b': 'TERRACE',
+            r'\bCL\b': 'CLOSE',
+            r'\bAPT\b': 'APARTMENT',
+            r'\bFLT\b': 'FLAT',
         }
 
-        for abbr, full in abbreviations.items():
-            normalized = normalized.replace(abbr, full)
+        for pattern, full in abbreviations.items():
+            normalized = _re.sub(pattern, full, normalized)
 
         # Remove "FLAT", "APARTMENT", "UNIT" followed by number (inconsistent across sources)
-        import re
-        normalized = re.sub(r'\b(FLAT|APARTMENT|UNIT)\s+\d+[A-Z]?\b', '', normalized)
+        normalized = _re.sub(r'\b(FLAT|APARTMENT|UNIT)\s+\d+[A-Z]?\b', '', normalized)
 
         # Clean up whitespace again
         normalized = ' '.join(normalized.split())
