@@ -13,6 +13,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import Account from './pages/Account';
 
 export default function App() {
   return (
@@ -31,6 +32,7 @@ export default function App() {
             <Route path="properties" element={<Properties />} />
             <Route path="properties/:id" element={<PropertyDetail />} />
             <Route path="alerts" element={<ProtectedRoute><Alerts /></ProtectedRoute>} />
+            <Route path="account" element={<ProtectedRoute><Account /></ProtectedRoute>} />
             <Route path="scrapers" element={
               (process.env.REACT_APP_ADMIN_EMAILS || '').split(',').includes(localStorage.getItem('assetlens_user_email'))
                 ? <Scrapers />
