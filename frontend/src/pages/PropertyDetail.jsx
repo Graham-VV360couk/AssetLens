@@ -50,6 +50,32 @@ const FLOOD_STYLE = {
   'very high': 'text-red-400 bg-red-500/10 border-red-500/30',
 };
 
+function epcBandColour(band) {
+  if (!band) return 'text-slate-500';
+  const b = band.toUpperCase();
+  if ('ABC'.includes(b)) return 'text-emerald-400';
+  if ('DE'.includes(b)) return 'text-amber-400';
+  return 'text-red-400'; // F, G
+}
+
+function epcEfficiencyColour(rating) {
+  if (!rating) return 'text-slate-500';
+  const r = rating.toLowerCase();
+  if (r === 'very good' || r === 'good') return 'text-emerald-400';
+  if (r === 'average') return 'text-amber-400';
+  return 'text-red-400'; // poor, very poor
+}
+
+function epcAgeColour(ageBand) {
+  if (!ageBand) return 'text-slate-500';
+  const match = ageBand.match(/(\d{4})/);
+  if (!match) return 'text-slate-500';
+  const year = parseInt(match[1]);
+  if (year >= 1990) return 'text-emerald-400';
+  if (year >= 1950) return 'text-amber-400';
+  return 'text-red-400'; // pre-1950
+}
+
 function PropertyDataPanel({ propertyId, score: initialScore }) {
   const [score, setScore] = useState(initialScore);
   const [loading, setLoading] = useState(false);
