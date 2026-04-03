@@ -358,6 +358,17 @@ def generate_report(db: Session, postcode: str) -> dict:
     if lsoa:
         report['crime'] = _get_crime(db, lsoa)
 
+    # Crime heat map points (lat/lng of all crimes in the area for past 12 months)
+    if lat and lng:
+        one_yr = (datetime.utcnow() - timedelta(days=365)).date()
+        crime_points = db.query(Crime.latitude, Crime.longitude).filter(
+            Crime.latitude.between(lat - MI_1, lat + MI_1),
+            Crime.longitude.between(lng - MI_1, lng + MI_1),
+            Crime.latitude.isnot(None),
+            Crime.month >= one_yr,
+        ).limit(500).all()
+        report['crime_heatmap'] = [[c.latitude, c.longitude, 0.5] for c in crime_points]
+
     # Schools (closest 3 per phase)
     if lat and lng:
         report['schools'] = _get_schools(db, lat, lng)

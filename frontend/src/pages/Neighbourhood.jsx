@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, lazy, Suspense } from 'react';
+import { useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Search, MapPin, Shield, Wifi, GraduationCap, Train, Bus,
@@ -7,6 +8,8 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { formatCurrency } from '../utils/formatters';
+
+const NeighbourhoodMap = lazy(() => import('../components/maps/NeighbourhoodMap'));
 
 const CRIME_BAND_COLORS = {
   'Low': 'text-emerald-400 bg-emerald-500/15',
@@ -56,15 +59,22 @@ function StatCard({ label, value, sub, color = 'text-white' }) {
 }
 
 export default function Neighbourhood() {
-  const [postcode, setPostcode] = useState('');
+  const { postcode: urlPostcode } = useParams();
+  const [postcode, setPostcode] = useState(urlPostcode || '');
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  const handleSearch = async (e) => {
-    e.preventDefault();
-    const pc = postcode.trim().toUpperCase();
-    if (!pc) return;
+  // Auto-search if postcode in URL
+  React.useEffect(() => {
+    if (urlPostcode && !report) {
+      setPostcode(urlPostcode);
+      handleSearchDirect(urlPostcode);
+    }
+  }, [urlPostcode]);
 
+  const handleSearchDirect = async (pc) => {
+    pc = pc.trim().toUpperCase();
+    if (!pc) return;
     setLoading(true);
     setReport(null);
     try {
@@ -79,6 +89,11 @@ export default function Neighbourhood() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSearch = async (e) => {
+    e.preventDefault();
+    handleSearchDirect(postcode);
   };
 
   return (
@@ -132,6 +147,21 @@ export default function Neighbourhood() {
               <StatCard label="Classification" value={report.rural_urban || null} />
             </div>
           </div>
+
+          {/* Map */}
+          {report.latitude && report.longitude && (
+            <Suspense fallback={<div className="h-[500px] bg-slate-800/50 rounded-xl animate-pulse" />}>
+              <NeighbourhoodMap
+                center={{ lat: report.latitude, lng: report.longitude }}
+                schools={report.schools || []}
+                transport={report.transport || []}
+                planning={report.planning || []}
+                crimePoints={report.crime_heatmap || []}
+                nearbyProperties={report.nearby_for_sale || []}
+                height="500px"
+              />
+            </Suspense>
+          )}
 
           {/* Broadband */}
           <Section title="Broadband" icon={Wifi}>

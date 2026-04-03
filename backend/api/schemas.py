@@ -241,6 +241,9 @@ class NeighbourhoodReport(BaseModel):
     avg_price_1yr: Optional[float] = None
     avg_price_5yr: Optional[float] = None
 
+    # Crime heat map points [[lat, lng, intensity], ...]
+    crime_heatmap: List[List[float]] = []
+
     # Nearby properties for sale
     nearby_for_sale: List[NearbyProperty] = []
 

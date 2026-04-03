@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Building2, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
 import PropertyCard from '../components/ui/PropertyCard';
 import PropertyFiltersBar from '../components/filters/PropertyFilters';
+import ScoringSliders from '../components/filters/ScoringSliders';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 
 const DEFAULT_FILTERS = { sort_by: 'investment_score', sort_dir: 'desc', page: 1, page_size: 18 };
@@ -40,6 +41,12 @@ export default function Properties() {
         onChange={setFilters}
         onReset={() => setFilters(DEFAULT_FILTERS)}
       />
+
+      <ScoringSliders onWeightsChange={(w) => {
+        // Store weights for future use — scoring will be applied client-side
+        // once property data includes enrichment fields
+        window.__assetlens_weights = w;
+      }} />
 
       {loading && (
         <div className="flex items-center justify-center py-24">
