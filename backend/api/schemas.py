@@ -92,6 +92,20 @@ class PropertySummary(BaseModel):
     ai_insight: Optional[PropertyAIInsightSchema]
     # Populated only when radius search is active
     distance_miles: Optional[float] = None
+    # Neighbourhood enrichment (also on summary for scoring sliders)
+    epc_energy_rating:      Optional[str] = None
+    broadband_gigabit_pct:  Optional[float] = None
+    crime_rate_band:        Optional[str] = None
+    crime_trend:            Optional[str] = None
+    imd_rank:               Optional[int] = None
+    nearest_primary_distance_mi:   Optional[float] = None
+    nearest_secondary_distance_mi: Optional[float] = None
+    nearest_station_distance_mi:   Optional[float] = None
+    in_flood_zone:          Optional[str] = None
+    in_conservation_area:   Optional[bool] = None
+    has_article4:           Optional[bool] = None
+    in_green_belt:          Optional[bool] = None
+    is_listed_building:     Optional[str] = None
 
 
 class PropertyDetail(PropertySummary):
@@ -161,6 +175,8 @@ class NearbySchool(BaseModel):
     phase: str
     distance_mi: float
     postcode: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     is_boarding: Optional[bool] = None
     is_selective: Optional[bool] = None
     gender: Optional[str] = None

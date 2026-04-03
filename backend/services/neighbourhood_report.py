@@ -174,6 +174,8 @@ def _get_schools(db: Session, lat: float, lng: float, radius_deg: float = MI_3) 
             'gender': r[5],
             'religious_character': r[6],
             'number_of_pupils': r[7],
+            'latitude': r[8],
+            'longitude': r[9],
             'distance_mi': round(dist, 2),
         })
 

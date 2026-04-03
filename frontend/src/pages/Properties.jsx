@@ -1,9 +1,9 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Building2, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
 import PropertyCard from '../components/ui/PropertyCard';
 import PropertyFiltersBar from '../components/filters/PropertyFilters';
-import ScoringSliders from '../components/filters/ScoringSliders';
+import ScoringSliders, { computeWeightedScore } from '../components/filters/ScoringSliders';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 
 const DEFAULT_FILTERS = { sort_by: 'investment_score', sort_dir: 'desc', page: 1, page_size: 18 };
@@ -13,6 +13,8 @@ export default function Properties() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [weights, setWeights] = useState(null);
+  const [usePersonalScore, setUsePersonalScore] = useState(false);
 
   const fetchProperties = useCallback(() => {
     setLoading(true);
@@ -27,26 +29,45 @@ export default function Properties() {
 
   useEffect(() => { fetchProperties(); }, [fetchProperties]);
 
+  // Re-sort properties client-side when weights change
+  const sortedItems = useMemo(() => {
+    if (!data?.items) return [];
+    if (!usePersonalScore || !weights) return data.items;
+
+    return [...data.items]
+      .map(prop => ({
+        ...prop,
+        personalScore: computeWeightedScore(prop, weights),
+      }))
+      .sort((a, b) => (b.personalScore ?? -1) - (a.personalScore ?? -1));
+  }, [data?.items, weights, usePersonalScore]);
+
+  const handleWeightsChange = useCallback((w) => {
+    setWeights(w);
+    setUsePersonalScore(true);
+  }, []);
+
   return (
     <div className="p-6 space-y-5">
       <div>
         <h1 className="text-2xl font-bold text-white">Properties</h1>
         <p className="text-slate-400 text-sm mt-1">
           {data ? `${data.total.toLocaleString()} properties found` : 'Loading...'}
+          {usePersonalScore && weights && (
+            <span className="ml-2 text-blue-400">
+              — sorted by your preferences
+            </span>
+          )}
         </p>
       </div>
 
       <PropertyFiltersBar
         filters={filters}
-        onChange={setFilters}
-        onReset={() => setFilters(DEFAULT_FILTERS)}
+        onChange={(f) => { setFilters(f); setUsePersonalScore(false); }}
+        onReset={() => { setFilters(DEFAULT_FILTERS); setUsePersonalScore(false); }}
       />
 
-      <ScoringSliders onWeightsChange={(w) => {
-        // Store weights for future use — scoring will be applied client-side
-        // once property data includes enrichment fields
-        window.__assetlens_weights = w;
-      }} />
+      <ScoringSliders onWeightsChange={handleWeightsChange} />
 
       {loading && (
         <div className="flex items-center justify-center py-24">
@@ -65,26 +86,26 @@ export default function Properties() {
         <>
           <AnimatePresence mode="wait">
             <motion.div
-              key={JSON.stringify(filters)}
+              key={JSON.stringify(filters) + String(usePersonalScore)}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"
             >
-              {data.items.length === 0 ? (
+              {sortedItems.length === 0 ? (
                 <div className="col-span-3 text-center py-20">
                   <Building2 size={48} className="text-slate-700 mx-auto mb-3" />
                   <p className="text-slate-500">No properties match your filters</p>
                 </div>
               ) : (
-                data.items.map((prop, i) => (
+                sortedItems.map((prop, i) => (
                   <motion.div
                     key={prop.id}
                     initial={{ opacity: 0, y: 16 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: i * 0.04, duration: 0.3 }}
                   >
-                    <PropertyCard property={prop} />
+                    <PropertyCard property={prop} personalScore={prop.personalScore} />
                   </motion.div>
                 ))
               )}

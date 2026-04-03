@@ -14,7 +14,7 @@ const VERDICT_STYLE = {
   AVOID:      'bg-red-500/20 text-red-300 border-red-500/40',
 };
 
-export default function PropertyCard({ property }) {
+export default function PropertyCard({ property, personalScore }) {
   const navigate = useNavigate();
   const score = property.score;
   const verdict = property.ai_insight?.verdict;
@@ -99,7 +99,11 @@ export default function PropertyCard({ property }) {
 
       {/* Meters */}
       <div className="flex items-center justify-around pt-3 border-t border-slate-800">
-        <ScoreGauge score={score?.investment_score} size={80} label="Score" />
+        {personalScore != null ? (
+          <ScoreGauge score={personalScore} size={80} label="Your Score" />
+        ) : (
+          <ScoreGauge score={score?.investment_score} size={80} label="Score" />
+        )}
         <YieldMeter yieldPct={score?.gross_yield_pct} size={80} label="Yield" />
         {score && (
           <div className="text-center">
