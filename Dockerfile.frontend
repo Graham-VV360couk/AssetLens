@@ -10,7 +10,7 @@ FROM node:18-alpine AS builder
 WORKDIR /app
 
 COPY frontend/package*.json ./
-RUN npm install --silent
+RUN npm install --legacy-peer-deps --silent
 
 COPY frontend/ .
 
