@@ -14,6 +14,12 @@ from .property_ai_insight import PropertyAIInsight
 from .property_attribute_profile import PropertyAttributeProfile
 from .epc_certificate import EPCCertificate
 from .epc_recommendation import EPCRecommendation
+from .school import School
+from .crime import Crime
+from .postcode import Postcode
+from .planning_designation import PlanningDesignation
+from .transport_stop import TransportStop
+from .broadband import BroadbandCoverage
 
 __all__ = [
     'Base',
@@ -30,4 +36,10 @@ __all__ = [
     'PropertyAttributeProfile',
     'EPCCertificate',
     'EPCRecommendation',
+    'School',
+    'Crime',
+    'Postcode',
+    'PlanningDesignation',
+    'TransportStop',
+    'BroadbandCoverage',
 ]

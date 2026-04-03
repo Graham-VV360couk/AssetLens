@@ -8,5 +8,11 @@
 # Daily email alerts at 6:00 AM
 0 6 * * * /bin/bash /app/scripts/send_alerts.sh >> /app/logs/cron_alerts.log 2>&1
 
+# Daily Zoopla scrape at 3:00 AM (after ETL, before alerts)
+0 3 * * * /bin/bash /app/scripts/run_zoopla_scrape.sh >> /app/logs/cron_zoopla.log 2>&1
+
+# Monthly Land Registry refresh on 5th at 4:00 AM
+0 4 5 * * /bin/bash /app/scripts/run_monthly_refresh.sh >> /app/logs/cron_lr_refresh.log 2>&1
+
 # Health check every 15 minutes
 */15 * * * * curl -sf http://backend:8000/health > /dev/null || echo "$(date): API health check FAILED" >> /app/logs/health.log

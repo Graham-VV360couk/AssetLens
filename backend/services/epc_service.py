@@ -133,6 +133,9 @@ def lookup_by_address(
     or None if no match found.
     """
     postcode_clean = postcode.strip().upper()
+    # Try to format as standard UK postcode (e.g. "WD256HH" -> "WD25 6HH")
+    if ' ' not in postcode_clean and len(postcode_clean) >= 5:
+        postcode_clean = postcode_clean[:-3] + ' ' + postcode_clean[-3:]
     result = _lookup_local(db, postcode_clean, address, min_similarity)
     if result:
         return result
@@ -150,13 +153,25 @@ def _lookup_local(
 ) -> Optional[dict]:
     """Query the local epc_certificates table."""
     try:
+        from sqlalchemy import func
+        # Try exact match first, then normalised (strip spaces) for format mismatches
         candidates = (
             db.query(EPCCertificate)
             .filter(EPCCertificate.postcode == postcode)
-            .order_by(EPCCertificate.inspection_date.desc())  # prefer most recent
+            .order_by(EPCCertificate.inspection_date.desc())
             .limit(50)
             .all()
         )
+        if not candidates:
+            # Normalised lookup: strip all spaces from both sides
+            pc_no_space = postcode.replace(' ', '')
+            candidates = (
+                db.query(EPCCertificate)
+                .filter(func.replace(EPCCertificate.postcode, ' ', '') == pc_no_space)
+                .order_by(EPCCertificate.inspection_date.desc())
+                .limit(50)
+                .all()
+            )
         if not candidates:
             return None
 

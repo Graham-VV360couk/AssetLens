@@ -909,6 +909,102 @@ export default function PropertyDetail() {
       {/* EPC Panel */}
       <EPCPanel property={property} />
 
+      {/* Neighbourhood Panel */}
+      {property.neighbourhood_enriched_at && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4"
+        >
+          <h2 className="text-white font-semibold flex items-center gap-2">
+            <MapPin size={18} className="text-blue-400" /> Neighbourhood
+          </h2>
+
+          {/* Quick stats row */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {property.broadband_gigabit_pct != null && (
+              <div className="bg-slate-800/60 rounded-lg p-3">
+                <div className="text-xs text-slate-500">Gigabit Broadband</div>
+                <div className={`text-lg font-bold ${property.broadband_gigabit_pct >= 80 ? 'text-emerald-400' : property.broadband_gigabit_pct >= 30 ? 'text-amber-400' : 'text-red-400'}`}>
+                  {property.broadband_gigabit_pct}%
+                </div>
+              </div>
+            )}
+            {property.crime_rate_band && (
+              <div className="bg-slate-800/60 rounded-lg p-3">
+                <div className="text-xs text-slate-500">Crime Rate</div>
+                <div className="text-lg font-bold text-white">{property.crime_rate_band}</div>
+                {property.crime_trend && <div className="text-xs text-slate-500">{property.crime_trend}</div>}
+              </div>
+            )}
+            {property.imd_rank && (
+              <div className="bg-slate-800/60 rounded-lg p-3">
+                <div className="text-xs text-slate-500">Deprivation Rank</div>
+                <div className="text-lg font-bold text-white">{property.imd_rank.toLocaleString()}</div>
+                <div className="text-xs text-slate-500">of 32,844</div>
+              </div>
+            )}
+            {property.nearest_station_name && (
+              <div className="bg-slate-800/60 rounded-lg p-3">
+                <div className="text-xs text-slate-500">Nearest Station</div>
+                <div className="text-sm font-bold text-white">{property.nearest_station_name}</div>
+                <div className="text-xs text-slate-500">{property.nearest_station_distance_mi} mi</div>
+              </div>
+            )}
+          </div>
+
+          {/* Schools */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {property.nearest_primary_name && (
+              <div className="bg-slate-800/60 rounded-lg p-3">
+                <div className="text-xs text-slate-500">Nearest Primary</div>
+                <div className="text-sm font-medium text-white">{property.nearest_primary_name}</div>
+                <div className="text-xs text-slate-500">{property.nearest_primary_distance_mi} mi</div>
+              </div>
+            )}
+            {property.nearest_secondary_name && (
+              <div className="bg-slate-800/60 rounded-lg p-3">
+                <div className="text-xs text-slate-500">Nearest Secondary</div>
+                <div className="text-sm font-medium text-white">{property.nearest_secondary_name}</div>
+                <div className="text-xs text-slate-500">{property.nearest_secondary_distance_mi} mi</div>
+              </div>
+            )}
+          </div>
+
+          {/* Planning flags */}
+          <div className="flex flex-wrap gap-2">
+            {property.in_conservation_area && (
+              <span className="text-xs px-2.5 py-1 bg-amber-500/15 text-amber-400 rounded-full border border-amber-500/30">Conservation Area</span>
+            )}
+            {property.in_flood_zone && (
+              <span className="text-xs px-2.5 py-1 bg-red-500/15 text-red-400 rounded-full border border-red-500/30">Flood Zone {property.in_flood_zone}</span>
+            )}
+            {property.in_green_belt && (
+              <span className="text-xs px-2.5 py-1 bg-green-500/15 text-green-400 rounded-full border border-green-500/30">Green Belt</span>
+            )}
+            {property.has_article4 && (
+              <span className="text-xs px-2.5 py-1 bg-purple-500/15 text-purple-400 rounded-full border border-purple-500/30">Article 4 Direction</span>
+            )}
+            {property.is_listed_building && (
+              <span className="text-xs px-2.5 py-1 bg-blue-500/15 text-blue-400 rounded-full border border-blue-500/30">Listed (Grade {property.is_listed_building})</span>
+            )}
+            {!property.in_conservation_area && !property.in_flood_zone && !property.in_green_belt && !property.has_article4 && !property.is_listed_building && (
+              <span className="text-xs px-2.5 py-1 bg-emerald-500/15 text-emerald-400 rounded-full border border-emerald-500/30">No Planning Restrictions</span>
+            )}
+          </div>
+
+          {/* Link to full report */}
+          {property.postcode && (
+            <a
+              href={`/neighbourhood/${encodeURIComponent(property.postcode)}`}
+              className="text-sm text-blue-400 hover:text-blue-300 transition"
+            >
+              View full neighbourhood report &rarr;
+            </a>
+          )}
+        </motion.div>
+      )}
+
       {/* PropertyData Enrichment Panel */}
       <PropertyDataPanel propertyId={id} score={property.score} />
 

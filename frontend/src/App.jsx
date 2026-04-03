@@ -14,6 +14,7 @@ import ProtectedRoute from './components/auth/ProtectedRoute';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Account from './pages/Account';
+import Neighbourhood from './pages/Neighbourhood';
 
 export default function App() {
   return (
@@ -31,6 +32,8 @@ export default function App() {
             <Route path="dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="properties" element={<Properties />} />
             <Route path="properties/:id" element={<PropertyDetail />} />
+            <Route path="neighbourhood" element={<Neighbourhood />} />
+            <Route path="neighbourhood/:postcode" element={<Neighbourhood />} />
             <Route path="alerts" element={<ProtectedRoute><Alerts /></ProtectedRoute>} />
             <Route path="account" element={<ProtectedRoute><Account /></ProtectedRoute>} />
             <Route path="scrapers" element={

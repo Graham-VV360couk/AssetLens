@@ -108,6 +108,31 @@ class PropertyDetail(PropertySummary):
     epc_matched_at:           Optional[datetime] = None
     epc_compliance_cost_low:  Optional[int] = None
     epc_compliance_cost_high: Optional[int] = None
+    # Neighbourhood enrichment
+    lsoa_code:              Optional[str] = None
+    imd_rank:               Optional[int] = None
+    rural_urban:            Optional[str] = None
+    broadband_gigabit_pct:  Optional[float] = None
+    broadband_sfbb_pct:     Optional[float] = None
+    broadband_below_uso_pct: Optional[float] = None
+    crime_count_1yr:        Optional[int] = None
+    crime_rate_band:        Optional[str] = None
+    crime_trend:            Optional[str] = None
+    nearest_primary_name:           Optional[str] = None
+    nearest_primary_distance_mi:    Optional[float] = None
+    nearest_secondary_name:         Optional[str] = None
+    nearest_secondary_distance_mi:  Optional[float] = None
+    nearest_station_name:           Optional[str] = None
+    nearest_station_distance_mi:    Optional[float] = None
+    nearest_station_type:           Optional[str] = None
+    nearest_bus_name:               Optional[str] = None
+    nearest_bus_distance_mi:        Optional[float] = None
+    in_conservation_area:   Optional[bool] = None
+    in_flood_zone:          Optional[str] = None
+    in_green_belt:          Optional[bool] = None
+    has_article4:           Optional[bool] = None
+    is_listed_building:     Optional[str] = None
+    neighbourhood_enriched_at: Optional[datetime] = None
 
 
 class PropertyListResponse(BaseModel):
@@ -129,6 +154,95 @@ class AreaStats(BaseModel):
     transaction_count_1yr: Optional[int] = None
     transaction_count_10yr: Optional[int] = None
     sales_by_year: List[dict] = []
+
+
+class NearbySchool(BaseModel):
+    name: str
+    phase: str
+    distance_mi: float
+    postcode: Optional[str] = None
+    is_boarding: Optional[bool] = None
+    is_selective: Optional[bool] = None
+    gender: Optional[str] = None
+    religious_character: Optional[str] = None
+    number_of_pupils: Optional[int] = None
+
+
+class NearbyTransport(BaseModel):
+    name: str
+    stop_type: str
+    distance_mi: float
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
+
+class NearbyProperty(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    address: Optional[str]
+    postcode: Optional[str]
+    asking_price: Optional[float]
+    property_type: Optional[str]
+    bedrooms: Optional[int]
+    image_url: Optional[str]
+    distance_mi: Optional[float] = None
+    status: Optional[str] = None
+
+
+class PlanningFlag(BaseModel):
+    dataset: str
+    name: Optional[str] = None
+    distance_mi: Optional[float] = None
+    flood_risk_level: Optional[str] = None
+    listed_building_grade: Optional[str] = None
+
+
+class CrimeSummary(BaseModel):
+    total_1yr: int = 0
+    rate_band: Optional[str] = None
+    trend: Optional[str] = None
+    by_type: List[dict] = []
+    monthly_trend: List[dict] = []
+
+
+class NeighbourhoodReport(BaseModel):
+    """Full neighbourhood intelligence for any UK address/postcode."""
+    postcode: str
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
+    # ONS geography
+    lsoa_code: Optional[str] = None
+    msoa_code: Optional[str] = None
+    lad_code: Optional[str] = None
+    imd_rank: Optional[int] = None
+    imd_band: Optional[str] = None
+    rural_urban: Optional[str] = None
+
+    # Broadband
+    broadband_gigabit_pct: Optional[float] = None
+    broadband_sfbb_pct: Optional[float] = None
+    broadband_below_uso_pct: Optional[float] = None
+
+    # Crime
+    crime: Optional[CrimeSummary] = None
+
+    # Schools (closest 3 per phase)
+    schools: List[NearbySchool] = []
+
+    # Transport
+    transport: List[NearbyTransport] = []
+
+    # Planning constraints
+    planning: List[PlanningFlag] = []
+
+    # Sales history for the postcode area
+    sales_history: List[SalesHistoryItem] = []
+    avg_price_1yr: Optional[float] = None
+    avg_price_5yr: Optional[float] = None
+
+    # Nearby properties for sale
+    nearby_for_sale: List[NearbyProperty] = []
 
 
 class ReviewResponse(BaseModel):

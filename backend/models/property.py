@@ -60,6 +60,45 @@ class Property(Base, TimestampMixin):
     epc_compliance_cost_low  = Column(Integer, nullable=True)   # £ to reach EPC E (low estimate)
     epc_compliance_cost_high = Column(Integer, nullable=True)   # £ to reach EPC E (high estimate)
 
+    # Neighbourhood enrichment — pre-computed from imported datasets
+    lsoa_code               = Column(String(15), nullable=True, index=True)
+    msoa_code               = Column(String(15), nullable=True)
+    lad_code                = Column(String(9), nullable=True)
+    imd_rank                = Column(Integer, nullable=True, index=True)
+    rural_urban             = Column(String(2), nullable=True)
+
+    broadband_gigabit_pct   = Column(Float, nullable=True)
+    broadband_sfbb_pct      = Column(Float, nullable=True)
+    broadband_below_uso_pct = Column(Float, nullable=True)
+
+    crime_count_1yr         = Column(Integer, nullable=True)
+    crime_rate_band         = Column(String(20), nullable=True)
+    crime_trend             = Column(String(20), nullable=True)
+
+    nearest_primary_name            = Column(String(200), nullable=True)
+    nearest_primary_distance_mi     = Column(Float, nullable=True)
+    nearest_secondary_name          = Column(String(200), nullable=True)
+    nearest_secondary_distance_mi   = Column(Float, nullable=True)
+
+    nearest_station_name            = Column(String(200), nullable=True)
+    nearest_station_distance_mi     = Column(Float, nullable=True)
+    nearest_station_type            = Column(String(10), nullable=True)
+    nearest_bus_name                = Column(String(200), nullable=True)
+    nearest_bus_distance_mi         = Column(Float, nullable=True)
+
+    in_conservation_area    = Column(Boolean, nullable=True)
+    in_flood_zone           = Column(String(10), nullable=True)
+    in_green_belt           = Column(Boolean, nullable=True)
+    has_article4            = Column(Boolean, nullable=True)
+    is_listed_building      = Column(String(5), nullable=True)
+
+    # JSON fields for richer neighbourhood data (3 schools per phase, etc.)
+    nearby_schools          = Column(Text, nullable=True)    # JSON array
+    nearby_transport        = Column(Text, nullable=True)    # JSON array
+    planning_flags          = Column(Text, nullable=True)    # JSON array
+
+    neighbourhood_enriched_at = Column(DateTime, nullable=True)
+
     # Description
     description = Column(Text)
 
