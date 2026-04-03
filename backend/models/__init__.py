@@ -3,6 +3,7 @@ AssetLens Database Models
 """
 
 from .base import Base
+from .user import User, UserProfile
 from .property import Property, PropertySource, PropertyScore
 from .sales_history import SalesHistory
 from .rental import Rental
@@ -25,6 +26,8 @@ from .user_property import UserProperty, PropertyValuation
 
 __all__ = [
     'Base',
+    'User',
+    'UserProfile',
     'Property',
     'PropertySource',
     'PropertyScore',

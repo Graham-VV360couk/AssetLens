@@ -108,13 +108,38 @@ class PropertyAuctionsSpider:
             return None
 
         addr_text = address.get_text(strip=True)
+
+        # Validate: reject if it looks like auction status text, not an address
+        addr_lower = addr_text.lower()
+        junk_patterns = [
+            'auction ended', 'auction ends', 'end time', 'reservation fee',
+            'sale agreed', 'lot number', 'time remaining',
+        ]
+        if any(p in addr_lower for p in junk_patterns):
+            logger.debug("Skipping junk address: %s", addr_text[:60])
+            return None
+
+        # Reject very short text or text that's just a date/time
+        if len(addr_text) < 8:
+            return None
+        if re.match(r'^\d{1,2}[/:-]\d{1,2}[/:-]\d{2,4}', addr_text):
+            return None
+
         # Extract postcode from address
         postcode_match = re.search(r'\b[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}\b', addr_text, re.IGNORECASE)
         postcode = postcode_match.group(0).upper().strip().rstrip('&,;/') if postcode_match else ''
 
+        # Extract property type from address text if present
+        type_match = re.search(
+            r'\b(detached|semi[- ]detached|terraced|end[- ]of[- ]terrace|bungalow|flat|maisonette|house|cottage)\b',
+            addr_text, re.IGNORECASE
+        )
+        property_type = type_match.group(1).lower().replace(' ', '-') if type_match else 'unknown'
+
         return {
             'address': addr_text,
             'postcode': postcode,
+            'property_type': property_type,
             'guide_price': _parse_price(guide.get_text() if guide else ''),
             'auction_date': _parse_date(date_el.get_text() if date_el else ''),
             'lot_number': lot.get_text(strip=True) if lot else '',
@@ -206,10 +231,16 @@ class AuctionImporter:
         )
 
         if not prop:
+            # Skip records with no meaningful address
+            addr = listing.get('address', '').strip()
+            if not addr or len(addr) < 8:
+                logger.debug("Skipping listing with no address")
+                return
+
             prop = Property(
-                address=listing['address'],
+                address=addr,
                 postcode=listing.get('postcode', ''),
-                property_type='unknown',
+                property_type=listing.get('property_type', 'unknown'),
                 asking_price=listing.get('guide_price'),
                 status='active',
                 date_found=datetime.utcnow(),

@@ -362,42 +362,50 @@ class ZooplaScraper:
         if not price or price < 10000:
             return None
 
-        # Address — look for lines containing street/place patterns
+        # Parse card structure: price -> beds/baths/receptions -> ADDRESS -> description
         lines = [l.strip() for l in text.splitlines() if l.strip()]
         address = ''
+
+        # Strategy: the address line comes after the beds/baths/receptions lines
+        # and before the description. It typically contains a comma and a place name.
+        found_beds = False
         for line in lines:
-            # Skip obvious non-address lines
-            if line.startswith('£') or line.startswith('$'):
-                continue
-            if re.match(r'^[\d,/]+$', line):
-                continue
-            if len(line) < 5 or len(line) > 150:
-                continue
             lower = line.lower()
-            if lower in ('see monthly cost', 'new', 'premium listing', 'featured',
-                         'property of the week', 'save', 'email', 'hide'):
+
+            # Track when we've passed the beds/baths section
+            if re.match(r'^\d+\s*bed', lower) or re.match(r'^\d+\s*bath', lower) or re.match(r'^\d+\s*reception', lower):
+                found_beds = True
                 continue
-            if re.match(r'^\d+\s*bed', lower):
+
+            if not found_beds:
                 continue
-            if lower.startswith('guide price') or lower.startswith('offers'):
+
+            # Skip non-address lines after beds
+            if lower in ('see monthly cost', 'call', 'email', 'highlight', 'save',
+                         'chain free', 'freehold', 'leasehold', 'new build',
+                         'property of the week', 'premium listing', 'shared ownership'):
                 continue
-            if lower.startswith('premium'):
+            if line.startswith('£') or re.match(r'^[\d,/]+$', line):
                 continue
-            # Looks like an address if it contains a road/place keyword or a postcode
-            if re.search(r'\b(road|street|lane|drive|close|avenue|way|crescent|'
-                         r'gardens|terrace|place|court|mews|hill|park|grove|'
-                         r'square|row|[A-Z]{1,2}\d)\b', line, re.IGNORECASE):
+            if len(line) < 5 or len(line) > 200:
+                continue
+
+            # This should be the address — it contains a comma (Street, Town)
+            # or a postcode district, and is short-ish (under ~80 chars)
+            if (',' in line or re.search(r'[A-Z]{1,2}\d', line)) and len(line) < 80:
                 address = line
                 break
-        # Fallback: take longest non-price line
-        if not address:
-            candidates = [l for l in lines
-                          if not l.startswith('£') and len(l) > 10 and not re.match(r'^\d', l)]
-            if candidates:
-                address = max(candidates, key=len)
 
-        # Postcode
-        postcode = _extract_postcode(text) or fallback_district
+            # If the line is long (>80 chars), it's probably the description — stop
+            if len(line) > 80:
+                break
+
+        # Postcode — try full postcode first, fallback to district from address line
+        postcode = _extract_postcode(text)
+        if not postcode:
+            # Try extracting district from the address line (e.g. "Barley Brow, Watford WD25")
+            district_match = re.search(r'\b([A-Z]{1,2}\d{1,2}[A-Z]?)\b', address)
+            postcode = district_match.group(1) if district_match else fallback_district
 
         # Property details
         bedrooms = _extract_beds(text)
@@ -537,12 +545,15 @@ class ZooplaImporter:
             self.stats['skipped'] += 1
             return
 
-        # Try to extract town from address
+        # Extract town from address (e.g. "Barley Brow, Watford WD25" -> "Watford")
         address = data.get('address', '')
         town = None
         parts = [p.strip() for p in address.split(',')]
         if len(parts) >= 2:
-            town = parts[-1] if not re.match(r'^[A-Z]{1,2}\d', parts[-1]) else (parts[-2] if len(parts) > 2 else None)
+            last_part = parts[-1].strip()
+            # Remove postcode district from end (e.g. "Watford WD25" -> "Watford")
+            town_cleaned = re.sub(r'\s+[A-Z]{1,2}\d{1,2}[A-Z]?\s*$', '', last_part).strip()
+            town = town_cleaned if town_cleaned and len(town_cleaned) > 1 else None
 
         prop = Property(
             address=address,

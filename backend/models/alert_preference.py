@@ -23,7 +23,7 @@ class UserAlertPreference(Base, TimestampMixin):
     property_types  = Column(String(200), nullable=True)  # e.g. "detached,semi-detached"
     last_alerted_at = Column(DateTime, nullable=True)
 
-    user = relationship('User', backref='alert_preference')
+    user = relationship('User', backref='alert_preferences')
 
     def __repr__(self):
         return f"<UserAlertPreference(user_id={self.user_id}, min={self.min_match_pct}%, freq={self.alert_frequency})>"
