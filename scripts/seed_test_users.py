@@ -59,6 +59,16 @@ TEST_USERS = [
         'is_verified': True,
     },
     {
+        'email': 'agent@assetlens.test',
+        'password': 'TestAgent2026!',
+        'full_name': 'Test Estate Agent',
+        'company_name': 'Demo Estates Ltd',
+        'role': 'estate_agent',
+        'subscription_status': 'active',
+        'subscription_tier': 'estate_agent',
+        'is_verified': True,
+    },
+    {
         'email': 'admin@assetlens.test',
         'password': 'TestAdmin2026!',
         'full_name': 'AssetLens Admin',
