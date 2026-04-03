@@ -40,6 +40,7 @@ class ProfileUpdate(BaseModel):
     target_location: Optional[str] = None
     strategy: Optional[str] = None
     readiness: Optional[str] = None
+    scoring_preferences: Optional[str] = None
 
 
 @router.get("/profile")

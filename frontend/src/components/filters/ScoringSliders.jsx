@@ -47,7 +47,7 @@ function SliderRow({ dim, weight, onChange }) {
   );
 }
 
-export default function ScoringSliders({ onWeightsChange, initialWeights = null }) {
+export default function ScoringSliders({ onWeightsChange, initialWeights = null, matchStats = null }) {
   const [weights, setWeights] = useState(() => {
     if (initialWeights) return initialWeights;
     const defaults = {};
@@ -56,6 +56,13 @@ export default function ScoringSliders({ onWeightsChange, initialWeights = null 
   });
 
   const [expanded, setExpanded] = useState(false);
+
+  // Sync from async initialWeights (e.g. profile loaded after mount)
+  useEffect(() => {
+    if (initialWeights) {
+      setWeights(initialWeights);
+    }
+  }, [initialWeights]);
 
   const handleChange = useCallback((key, value) => {
     setWeights(prev => {
@@ -123,6 +130,18 @@ export default function ScoringSliders({ onWeightsChange, initialWeights = null 
               onChange={handleChange}
             />
           ))}
+
+          {/* Live match counter */}
+          {matchStats && (
+            <div className="flex items-center gap-4 pt-3 mt-2 border-t border-slate-700/50">
+              <span className="text-sm text-emerald-400 font-semibold">
+                {matchStats.above50} of {matchStats.total} properties score 50+
+              </span>
+              <span className="text-xs text-slate-500">
+                Average match: {matchStats.avg}%
+              </span>
+            </div>
+          )}
         </div>
       )}
     </div>

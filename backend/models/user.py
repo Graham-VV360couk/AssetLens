@@ -106,6 +106,9 @@ class UserProfile(Base, TimestampMixin):
     broker_consent_given_at = Column(DateTime, nullable=True)
     profile_deletion_at = Column(DateTime, nullable=True)
 
+    # Scoring preferences (JSON — slider weights)
+    scoring_preferences = Column(Text, nullable=True)
+
     # Uploader settings
     auction_form_field_prefs = Column(Text, nullable=True)
     brand_logo_url = Column(String(500), nullable=True)

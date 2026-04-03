@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Building2, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
 import PropertyCard from '../components/ui/PropertyCard';
@@ -7,6 +7,15 @@ import ScoringSliders, { computeWeightedScore } from '../components/filters/Scor
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 
 const DEFAULT_FILTERS = { sort_by: 'investment_score', sort_dir: 'desc', page: 1, page_size: 18 };
+const SAVE_DEBOUNCE_MS = 800;
+const LS_KEY = 'assetlens_scoring_weights';
+
+function loadLocalWeights() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
 
 export default function Properties() {
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
@@ -14,7 +23,38 @@ export default function Properties() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [weights, setWeights] = useState(null);
+  const [savedWeights, setSavedWeights] = useState(null);
   const [usePersonalScore, setUsePersonalScore] = useState(false);
+  const saveTimerRef = useRef(null);
+
+  // Load saved weights on mount
+  useEffect(() => {
+    const token = localStorage.getItem('assetlens_token');
+    if (token) {
+      fetch('/api/account/profile', {
+        headers: { 'Authorization': `Bearer ${token}` },
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(profile => {
+          if (profile?.scoring_preferences) {
+            try {
+              const parsed = JSON.parse(profile.scoring_preferences);
+              setSavedWeights(parsed);
+              setWeights(parsed);
+              setUsePersonalScore(true);
+            } catch {}
+          }
+        })
+        .catch(() => {});
+    } else {
+      const local = loadLocalWeights();
+      if (local) {
+        setSavedWeights(local);
+        setWeights(local);
+        setUsePersonalScore(true);
+      }
+    }
+  }, []);
 
   const fetchProperties = useCallback(() => {
     setLoading(true);
@@ -42,9 +82,41 @@ export default function Properties() {
       .sort((a, b) => (b.personalScore ?? -1) - (a.personalScore ?? -1));
   }, [data?.items, weights, usePersonalScore]);
 
+  // Compute match stats for live counter
+  const matchStats = useMemo(() => {
+    if (!data?.items || !weights || !usePersonalScore) return null;
+    const scores = data.items
+      .map(p => computeWeightedScore(p, weights))
+      .filter(s => s !== null);
+    if (scores.length === 0) return null;
+    const above50 = scores.filter(s => s >= 50).length;
+    const avg = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+    return { above50, total: scores.length, avg };
+  }, [data?.items, weights, usePersonalScore]);
+
   const handleWeightsChange = useCallback((w) => {
     setWeights(w);
     setUsePersonalScore(true);
+
+    // Debounced save
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      // Always save to localStorage
+      localStorage.setItem(LS_KEY, JSON.stringify(w));
+
+      // Save to profile if logged in
+      const token = localStorage.getItem('assetlens_token');
+      if (token) {
+        fetch('/api/account/profile', {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ scoring_preferences: JSON.stringify(w) }),
+        }).catch(() => {});
+      }
+    }, SAVE_DEBOUNCE_MS);
   }, []);
 
   return (
@@ -67,7 +139,11 @@ export default function Properties() {
         onReset={() => { setFilters(DEFAULT_FILTERS); setUsePersonalScore(false); }}
       />
 
-      <ScoringSliders onWeightsChange={handleWeightsChange} />
+      <ScoringSliders
+        onWeightsChange={handleWeightsChange}
+        initialWeights={savedWeights}
+        matchStats={matchStats}
+      />
 
       {loading && (
         <div className="flex items-center justify-center py-24">

@@ -110,7 +110,7 @@ class PropertyAuctionsSpider:
         addr_text = address.get_text(strip=True)
         # Extract postcode from address
         postcode_match = re.search(r'\b[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}\b', addr_text, re.IGNORECASE)
-        postcode = postcode_match.group(0).upper() if postcode_match else ''
+        postcode = postcode_match.group(0).upper().strip().rstrip('&,;/') if postcode_match else ''
 
         return {
             'address': addr_text,
@@ -165,7 +165,7 @@ class AllsopSpider:
 
         addr_text = address.get_text(strip=True)
         postcode_match = re.search(r'\b[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}\b', addr_text, re.IGNORECASE)
-        postcode = postcode_match.group(0).upper() if postcode_match else ''
+        postcode = postcode_match.group(0).upper().strip().rstrip('&,;/') if postcode_match else ''
 
         return {
             'address': addr_text,
