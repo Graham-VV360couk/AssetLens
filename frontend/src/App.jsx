@@ -15,6 +15,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Account from './pages/Account';
 import Neighbourhood from './pages/Neighbourhood';
+import MyProperties from './pages/MyProperties';
 
 export default function App() {
   return (
@@ -35,6 +36,7 @@ export default function App() {
             <Route path="neighbourhood" element={<Neighbourhood />} />
             <Route path="neighbourhood/:postcode" element={<Neighbourhood />} />
             <Route path="alerts" element={<ProtectedRoute><Alerts /></ProtectedRoute>} />
+            <Route path="my-properties" element={<ProtectedRoute><MyProperties /></ProtectedRoute>} />
             <Route path="account" element={<ProtectedRoute><Account /></ProtectedRoute>} />
             <Route path="scrapers" element={
               (process.env.REACT_APP_ADMIN_EMAILS || '').split(',').includes(localStorage.getItem('assetlens_user_email'))

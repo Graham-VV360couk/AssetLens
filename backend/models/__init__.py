@@ -21,6 +21,7 @@ from .planning_designation import PlanningDesignation
 from .transport_stop import TransportStop
 from .broadband import BroadbandCoverage
 from .alert_preference import UserAlertPreference
+from .user_property import UserProperty, PropertyValuation
 
 __all__ = [
     'Base',
@@ -44,4 +45,6 @@ __all__ = [
     'TransportStop',
     'BroadbandCoverage',
     'UserAlertPreference',
+    'UserProperty',
+    'PropertyValuation',
 ]

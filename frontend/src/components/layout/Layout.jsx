@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, Building2, Bell, Globe, Menu, X, Activity, MapPin
+  LayoutDashboard, Building2, Bell, Globe, Menu, X, Activity, MapPin, Home
 } from 'lucide-react';
 import clsx from 'clsx';
 import AdBar from '../ads/AdBar';
@@ -10,6 +10,7 @@ const navItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/properties', icon: Building2, label: 'Properties' },
   { to: '/neighbourhood', icon: MapPin, label: 'Area Lookup' },
+  { to: '/my-properties', icon: Home, label: 'My Properties' },
   { to: '/alerts', icon: Bell, label: 'Alerts' },
   { to: '/scrapers', icon: Globe, label: 'Data Sources' },
 ];
