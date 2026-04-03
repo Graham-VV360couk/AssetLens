@@ -23,6 +23,7 @@ from .transport_stop import TransportStop
 from .broadband import BroadbandCoverage
 from .alert_preference import UserAlertPreference
 from .user_property import UserProperty, PropertyValuation
+from .private_listing import PrivateListing, Conversation, Message
 
 __all__ = [
     'Base',
@@ -50,4 +51,7 @@ __all__ = [
     'UserAlertPreference',
     'UserProperty',
     'PropertyValuation',
+    'PrivateListing',
+    'Conversation',
+    'Message',
 ]

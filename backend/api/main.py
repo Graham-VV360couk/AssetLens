@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from backend.api.routers import properties, areas, dashboard, scrapers, scoring, ai_analysis, profile, ads, scan, auth, billing, account, listings, auction_listings, deal_listings, neighbourhood, alerts, agent_listings, valuation
+from backend.api.routers import properties, areas, dashboard, scrapers, scoring, ai_analysis, profile, ads, scan, auth, billing, account, listings, auction_listings, deal_listings, neighbourhood, alerts, agent_listings, valuation, private_sales
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -58,6 +58,7 @@ app.include_router(neighbourhood.router)
 app.include_router(alerts.router)
 app.include_router(agent_listings.router)
 app.include_router(valuation.router)
+app.include_router(private_sales.router)
 
 
 @app.get("/health")
