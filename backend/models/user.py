@@ -14,6 +14,7 @@ class UserRole(str, enum.Enum):
     investor = 'investor'
     auction_house = 'auction_house'
     deal_source = 'deal_source'
+    estate_agent = 'estate_agent'
     admin = 'admin'
 
 
@@ -29,6 +30,7 @@ class SubscriptionTier(str, enum.Enum):
     investor = 'investor'
     auction_house = 'auction_house'
     deal_source = 'deal_source'
+    estate_agent = 'estate_agent'
     white_label = 'white_label'
     admin = 'admin'
 

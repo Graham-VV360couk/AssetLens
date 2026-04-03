@@ -92,6 +92,52 @@ def get_public_listing(
     return _public_view(prop)
 
 
+def _get_uploader_listings(db: Session, uploader: User, source_name: str, viewer: Optional[User]):
+    """Get public listing view for an uploader's properties."""
+    from backend.models.property import PropertySource
+    props = (
+        db.query(Property)
+        .join(PropertySource, Property.id == PropertySource.property_id)
+        .filter(
+            PropertySource.source_name == source_name,
+            PropertySource.source_id.like(f'{uploader.id}_%'),
+            PropertySource.is_active == True,
+            Property.status == 'active',
+        )
+        .order_by(Property.date_found.desc())
+        .limit(100)
+        .all()
+    )
+
+    is_investor = (viewer and viewer.subscription_status in ('active', 'past_due')
+                   and viewer.subscription_tier in ('investor', 'admin'))
+
+    profile = uploader.profile if hasattr(uploader, 'profile') and uploader.profile else None
+    brand = {}
+    if profile:
+        brand = {
+            'logo_url': profile.brand_logo_url,
+            'primary_colour': profile.brand_primary_colour,
+            'accent_colour': profile.brand_accent_colour,
+            'company_name': uploader.company_name or uploader.full_name,
+        }
+
+    listings = []
+    for prop in props:
+        if is_investor:
+            listings.append(_investor_view(prop, db))
+        else:
+            listings.append(_public_view(prop))
+
+    return {
+        'uploader': uploader.full_name,
+        'company': uploader.company_name,
+        'brand': brand,
+        'total': len(listings),
+        'listings': listings,
+    }
+
+
 @router.get("/auction/{username}")
 def get_auction_listings(
     username: str,
@@ -102,7 +148,7 @@ def get_auction_listings(
     uploader = db.query(User).filter(User.email == username).first()
     if not uploader:
         raise HTTPException(status_code=404, detail="Auction house not found")
-    return {'uploader': uploader.full_name, 'listings': []}
+    return _get_uploader_listings(db, uploader, 'auction_upload', user)
 
 
 @router.get("/deal/{username}")
@@ -115,4 +161,17 @@ def get_deal_listings(
     uploader = db.query(User).filter(User.email == username).first()
     if not uploader:
         raise HTTPException(status_code=404, detail="Deal source not found")
-    return {'uploader': uploader.full_name, 'listings': []}
+    return _get_uploader_listings(db, uploader, 'deal_upload', user)
+
+
+@router.get("/agent/{username}")
+def get_agent_listings(
+    username: str,
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_optional_user),
+):
+    """List all active properties uploaded by an estate agent. Branded page."""
+    uploader = db.query(User).filter(User.email == username).first()
+    if not uploader:
+        raise HTTPException(status_code=404, detail="Estate agent not found")
+    return _get_uploader_listings(db, uploader, 'agent_upload', user)
