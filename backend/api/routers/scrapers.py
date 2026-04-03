@@ -43,6 +43,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from backend.api.dependencies import get_db
+from backend.auth.guards import require_subscription
 from backend.models.property import Property, PropertyScore
 from backend.models.auction import Auction
 from backend.models.scraper_source import ScraperSource, ScraperStrategyLibrary
@@ -1633,7 +1634,12 @@ def toggle_source(source_id: int, db: Session = Depends(get_db)):
 
 
 @router.post('/{source_id}/run')
-def run_source(source_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+def run_source(
+    source_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    user = Depends(require_subscription('admin')),
+):
     source = db.query(ScraperSource).filter(ScraperSource.id == source_id).first()
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")

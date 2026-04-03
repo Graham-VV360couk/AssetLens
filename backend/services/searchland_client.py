@@ -293,6 +293,9 @@ class SearchlandClient:
         raw_status = (raw_property.get('status') or '').lower()
         mapped_status = self._STATUS_MAP.get(raw_status, 'active')
 
+        images = raw_property.get('images') or []
+        first_image = images[0] if images else raw_property.get('image_url')
+
         return {
             'source_id': raw_property.get('id'),
             'source_name': raw_property.get('source', 'searchland'),  # rightmove, zoopla, etc.
@@ -310,6 +313,8 @@ class SearchlandClient:
             'sold_price': raw_property.get('sold_price'),
             'price_qualifier': raw_property.get('price_qualifier'),
             'description': raw_property.get('description'),
+            'image_url': first_image,
+            'image_urls': json.dumps(images) if images else None,
             'date_found': datetime.utcnow().date(),
             'status': mapped_status,
             'imported_at': datetime.utcnow()

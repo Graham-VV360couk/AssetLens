@@ -17,6 +17,7 @@ import PriceComparisonChart from '../components/charts/PriceComparisonChart';
 import ComparableSalesTable from '../components/charts/ComparableSalesTable';
 import PriceHistogramChart from '../components/charts/PriceHistogramChart';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
+import ImageGallery from '../components/ui/ImageGallery';
 import { formatCurrency, formatYield, propertyTypeIcon } from '../utils/formatters';
 import PropertyProfileCard from '../components/profile/PropertyProfileCard';
 
@@ -48,6 +49,32 @@ const FLOOD_STYLE = {
   high:      'text-orange-400 bg-orange-500/10 border-orange-500/30',
   'very high': 'text-red-400 bg-red-500/10 border-red-500/30',
 };
+
+function epcBandColour(band) {
+  if (!band) return 'text-slate-500';
+  const b = band.toUpperCase();
+  if ('ABC'.includes(b)) return 'text-emerald-400';
+  if ('DE'.includes(b)) return 'text-amber-400';
+  return 'text-red-400'; // F, G
+}
+
+function epcEfficiencyColour(rating) {
+  if (!rating) return 'text-slate-500';
+  const r = rating.toLowerCase();
+  if (r === 'very good' || r === 'good') return 'text-emerald-400';
+  if (r === 'average') return 'text-amber-400';
+  return 'text-red-400'; // poor, very poor
+}
+
+function epcAgeColour(ageBand) {
+  if (!ageBand) return 'text-slate-500';
+  const match = ageBand.match(/(\d{4})/);
+  if (!match) return 'text-slate-500';
+  const year = parseInt(match[1]);
+  if (year >= 1990) return 'text-emerald-400';
+  if (year >= 1950) return 'text-amber-400';
+  return 'text-red-400'; // pre-1950
+}
 
 function PropertyDataPanel({ propertyId, score: initialScore }) {
   const [score, setScore] = useState(initialScore);
@@ -407,7 +434,7 @@ function EPCPanel({ property }) {
   );
 }
 
-const WHARF_URL = 'https://propertyfundingplatform.com/WharfFinancial#!/';
+const WHARF_URL = 'https://propertyfundingplatform.com/WharfFinancial#!/allloans';
 
 function FundingQuoteButton({ property, score }) {
   const [open, setOpen] = useState(false);
@@ -637,19 +664,23 @@ export default function PropertyDetail() {
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-10">
-      {/* Hero image */}
-      {property.image_url && (
-        <div className="h-64 w-full overflow-hidden bg-slate-900 rounded-b-2xl">
-          <img
-            src={property.image_url}
-            alt={property.address}
-            className="w-full h-full object-cover"
-            onError={e => { e.target.parentElement.style.display = 'none'; }}
-          />
+      <ImageGallery
+        imageUrl={property.image_url}
+        imageUrls={property.image_urls}
+        alt={property.address}
+      />
+
+      <div className="px-6 space-y-6">
+      {/* Property description */}
+      {property.description && (
+        <div className="bg-slate-800/50 border border-slate-700/50 rounded-2xl p-5">
+          <h3 className="text-sm font-semibold text-slate-300 mb-2">Description</h3>
+          <p className="text-sm text-slate-400 leading-relaxed whitespace-pre-line">
+            {property.description}
+          </p>
         </div>
       )}
 
-      <div className="px-6 space-y-6">
       {/* Back + header */}
       <div className="flex items-start gap-4">
         <button

@@ -24,6 +24,23 @@ class EPCCertificate(Base, TimestampMixin):
     potential_energy_rating = Column(String(5), nullable=True)
     inspection_date         = Column(Date)
 
+    # Extended Tier 1 fields (Sprint 1 addendum)
+    construction_age_band       = Column(String(50), nullable=True)
+    current_energy_efficiency   = Column(Integer, nullable=True)    # 0-100 numeric
+    potential_energy_efficiency  = Column(Integer, nullable=True)    # 0-100 numeric
+    tenure                      = Column(String(50), nullable=True)  # owner-occupied, rental, etc.
+    mains_gas_flag              = Column(String(1), nullable=True)   # Y/N
+    heating_cost_current        = Column(Float, nullable=True)       # annual £
+    heating_cost_potential       = Column(Float, nullable=True)       # annual £
+    hot_water_cost_current      = Column(Float, nullable=True)       # annual £
+    hot_water_cost_potential     = Column(Float, nullable=True)       # annual £
+    lighting_cost_current       = Column(Float, nullable=True)       # annual £
+    lighting_cost_potential      = Column(Float, nullable=True)       # annual £
+    co2_emissions_current       = Column(Float, nullable=True)       # tonnes/yr
+    number_habitable_rooms      = Column(Integer, nullable=True)
+    transaction_type            = Column(String(50), nullable=True)  # marketed sale, rental, etc.
+    epc_expiry_date             = Column(Date, nullable=True)        # computed: inspection_date + 10yr
+
     __table_args__ = (
         Index('ix_epc_postcode', 'postcode'),
         Index('ix_epc_uprn', 'uprn'),
