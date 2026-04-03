@@ -205,3 +205,117 @@ class EmailAlertService:
         except Exception as e:
             logger.error("Failed to send notification email: %s", e)
             return False
+
+
+PERSONALISED_ALERT_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { font-family: 'Helvetica Neue', Arial, sans-serif; background: #0f172a; color: #e2e8f0; margin: 0; padding: 0; }
+  .container { max-width: 680px; margin: 0 auto; padding: 24px; }
+  .header { background: #1e293b; border-radius: 16px; padding: 24px; margin-bottom: 24px; border: 1px solid #334155; }
+  .header h1 { color: #3b82f6; margin: 0 0 4px 0; font-size: 22px; }
+  .header p { color: #94a3b8; margin: 0; font-size: 14px; }
+  .match-card { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+  .match-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .match-score { background: #3b82f6; color: white; font-weight: 800; font-size: 18px; padding: 4px 12px; border-radius: 8px; }
+  .match-address { color: #e2e8f0; font-weight: 600; font-size: 14px; }
+  .match-price { color: #10b981; font-weight: 700; font-size: 16px; }
+  .match-details { color: #94a3b8; font-size: 12px; margin-top: 4px; }
+  .match-reasons { margin-top: 8px; }
+  .reason { display: inline-block; background: #334155; color: #94a3b8; font-size: 11px; padding: 2px 8px; border-radius: 10px; margin: 2px 4px 2px 0; }
+  .cta { display: block; text-align: center; background: #3b82f6; color: white; text-decoration: none; padding: 14px; border-radius: 12px; font-weight: 600; margin: 24px 0; }
+  .footer { text-align: center; color: #64748b; font-size: 11px; margin-top: 24px; padding-top: 16px; border-top: 1px solid #334155; }
+  .footer a { color: #64748b; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>{{ matches|length }} New Match{{ 'es' if matches|length != 1 }} Found</h1>
+    <p>Properties matching your preferences ({{ min_match_pct }}%+ threshold)</p>
+  </div>
+
+  {% for m in matches[:10] %}
+  <div class="match-card">
+    <div class="match-header">
+      <div>
+        <div class="match-address">{{ m.address or 'Address not available' }}</div>
+        <div class="match-details">{{ m.postcode or '' }} · {{ m.property_type or '' }} · {{ m.bedrooms or '?' }} bed</div>
+      </div>
+      <div style="text-align: right;">
+        <div class="match-score">{{ m.match_pct }}%</div>
+        <div class="match-price">{{ "£{:,.0f}".format(m.asking_price) if m.asking_price else '—' }}</div>
+      </div>
+    </div>
+    {% if m.match_reasons %}
+    <div class="match-reasons">
+      {% for reason in m.match_reasons %}
+      <span class="reason">{{ reason }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+
+  {% if matches|length > 10 %}
+  <p style="text-align: center; color: #94a3b8; font-size: 13px;">
+    ...and {{ matches|length - 10 }} more matches
+  </p>
+  {% endif %}
+
+  <a href="{{ dashboard_url }}/alerts" class="cta">View All Matches →</a>
+
+  <div class="footer">
+    <p>You're receiving this because you have property alerts enabled on AssetLens.</p>
+    <p><a href="{{ dashboard_url }}/account">Manage alert preferences</a> · <a href="{{ dashboard_url }}/alerts">Unsubscribe</a></p>
+  </div>
+</div>
+</body>
+</html>
+"""
+
+
+def send_personalised_alert(user, matches: list) -> bool:
+    """Send a personalised property match alert email to a user."""
+    service = EmailAlertService()
+
+    if not service.smtp_password:
+        logger.warning("SMTP not configured — skipping personalised alert for %s", user.email)
+        return False
+
+    alert_pref = None
+    if hasattr(user, 'alert_preference') and user.alert_preference:
+        alert_pref = user.alert_preference[0] if isinstance(user.alert_preference, list) else user.alert_preference
+    min_match = alert_pref.min_match_pct if alert_pref else 60
+
+    subject = f"AssetLens: {len(matches)} new propert{'y' if len(matches) == 1 else 'ies'} matching your criteria"
+
+    template = Template(PERSONALISED_ALERT_TEMPLATE)
+    html = template.render(
+        matches=matches,
+        min_match_pct=min_match,
+        dashboard_url=service.dashboard_url,
+    )
+
+    try:
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = subject
+        msg['From'] = service.from_email
+        msg['To'] = user.email
+        msg.attach(MIMEText(html, 'html'))
+
+        with smtplib.SMTP(service.smtp_host, service.smtp_port) as server:
+            server.ehlo()
+            server.starttls()
+            server.login(service.smtp_user, service.smtp_password)
+            server.sendmail(service.from_email, [user.email], msg.as_string())
+
+        logger.info("Personalised alert sent to %s (%d matches)", user.email, len(matches))
+        return True
+
+    except Exception as e:
+        logger.error("Failed to send personalised alert to %s: %s", user.email, e)
+        return False

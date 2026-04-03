@@ -20,6 +20,7 @@ from .postcode import Postcode
 from .planning_designation import PlanningDesignation
 from .transport_stop import TransportStop
 from .broadband import BroadbandCoverage
+from .alert_preference import UserAlertPreference
 
 __all__ = [
     'Base',
@@ -42,4 +43,5 @@ __all__ = [
     'PlanningDesignation',
     'TransportStop',
     'BroadbandCoverage',
+    'UserAlertPreference',
 ]
