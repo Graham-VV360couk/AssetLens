@@ -127,7 +127,7 @@ export default function MyProperties() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Remove this property from your portfolio?')) return;
+    if (!window.confirm('Remove this property from your portfolio?')) return;
     await fetch(`/api/valuation/properties/${id}`, { method: 'DELETE', headers });
     fetchProperties();
   };
