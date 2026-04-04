@@ -1,14 +1,30 @@
 """Neighbourhood report API endpoint."""
+import json
 import logging
-from fastapi import APIRouter, Depends, HTTPException, Query
+from datetime import date, datetime
+from decimal import Decimal
+
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from backend.api.dependencies import get_db
-from backend.api.schemas import NeighbourhoodReport
 from backend.services.neighbourhood_report import generate_report
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/api/neighbourhood', tags=['neighbourhood'])
+
+
+class SafeEncoder(json.JSONEncoder):
+    """Handle date, datetime, Decimal and other non-serialisable types."""
+    def default(self, obj):
+        if isinstance(obj, (date, datetime)):
+            return obj.isoformat()
+        if isinstance(obj, Decimal):
+            return float(obj)
+        if isinstance(obj, bytes):
+            return obj.decode('utf-8', errors='replace')
+        return super().default(obj)
 
 
 @router.get('/{postcode}')
@@ -33,4 +49,6 @@ def get_neighbourhood_report(
     if 'error' in report:
         raise HTTPException(status_code=404, detail=report['error'])
 
-    return report
+    # Use safe encoder to handle dates, Decimals, etc.
+    content = json.loads(json.dumps(report, cls=SafeEncoder))
+    return JSONResponse(content=content)
