@@ -339,6 +339,8 @@ def _enrich_planning(db: Session, prop: Property):
     listed_grade = None
     flags = []
     seen_datasets = {}
+    seen_flood_levels = {}   # flood_risk_level -> best distance
+    listed_entries = []      # collect then trim
 
     for row in nearby:
         datasets_found.add(row.dataset)
@@ -357,13 +359,26 @@ def _enrich_planning(db: Session, prop: Property):
             'listed_building_grade': row.listed_building_grade,
         }
 
-        if row.dataset in ('flood-risk-zone', 'listed-building'):
-            flags.append(entry)
+        if row.dataset == 'flood-risk-zone':
+            lvl = row.flood_risk_level or 'unknown'
+            prev = seen_flood_levels.get(lvl)
+            if prev is None or (dist is not None and dist < prev):
+                seen_flood_levels[lvl] = dist
+                flags = [f for f in flags
+                         if not (f['dataset'] == 'flood-risk-zone'
+                                 and (f['flood_risk_level'] or 'unknown') == lvl)]
+                flags.append(entry)
+        elif row.dataset == 'listed-building':
+            listed_entries.append((dist if dist is not None else 999, entry))
         else:
             if row.dataset not in seen_datasets or (dist and dist < seen_datasets[row.dataset]):
                 seen_datasets[row.dataset] = dist
                 flags = [f for f in flags if f['dataset'] != row.dataset]
                 flags.append(entry)
+
+    # Keep only the 5 closest listed buildings
+    listed_entries.sort(key=lambda x: x[0])
+    flags.extend(e for _, e in listed_entries[:5])
 
     flags.sort(key=lambda f: f.get('distance_mi') or 999)
     prop.planning_flags = json.dumps(flags) if flags else None

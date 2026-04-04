@@ -249,9 +249,13 @@ def _get_planning(db: Session, lat: float, lng: float) -> list:
         PlanningDesignation.longitude.between(lng - MI_1, lng + MI_1),
     ).all()
 
-    # Deduplicate by dataset (show closest per type, except flood/listed which show all)
+    # Deduplicate: closest per dataset; for flood keep closest per risk level,
+    # for listed buildings keep closest 5.
     flags = []
     seen_datasets = {}
+    seen_flood_levels = {}   # flood_risk_level -> best distance
+    listed_entries = []      # collect then trim
+
     for r in rows:
         dist = _haversine(lat, lng, r.latitude, r.longitude) if r.latitude else None
         entry = {
@@ -262,15 +266,26 @@ def _get_planning(db: Session, lat: float, lng: float) -> list:
             'listed_building_grade': r.listed_building_grade,
         }
 
-        # For flood/listed, keep all. For others, keep closest.
-        if r.dataset in ('flood-risk-zone', 'listed-building'):
-            flags.append(entry)
+        if r.dataset == 'flood-risk-zone':
+            lvl = r.flood_risk_level or 'unknown'
+            prev = seen_flood_levels.get(lvl)
+            if prev is None or (dist is not None and dist < prev):
+                seen_flood_levels[lvl] = dist
+                flags = [f for f in flags
+                         if not (f['dataset'] == 'flood-risk-zone'
+                                 and (f['flood_risk_level'] or 'unknown') == lvl)]
+                flags.append(entry)
+        elif r.dataset == 'listed-building':
+            listed_entries.append((dist if dist is not None else 999, entry))
         else:
             if r.dataset not in seen_datasets or (dist and dist < seen_datasets[r.dataset]):
                 seen_datasets[r.dataset] = dist
-                # Replace previous entry for this dataset
                 flags = [f for f in flags if f['dataset'] != r.dataset]
                 flags.append(entry)
+
+    # Keep only the 5 closest listed buildings
+    listed_entries.sort(key=lambda x: x[0])
+    flags.extend(e for _, e in listed_entries[:5])
 
     flags.sort(key=lambda f: f.get('distance_mi') or 999)
     return flags
