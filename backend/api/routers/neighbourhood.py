@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/api/neighbourhood', tags=['neighbourhood'])
 
 
-@router.get('/{postcode}', response_model=NeighbourhoodReport)
+@router.get('/{postcode}')
 def get_neighbourhood_report(
     postcode: str,
     db: Session = Depends(get_db),
