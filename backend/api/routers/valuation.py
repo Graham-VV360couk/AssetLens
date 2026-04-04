@@ -218,6 +218,55 @@ def delete_property(
 
 
 # ============================================================================
+# EPC lookup
+# ============================================================================
+
+@router.get("/properties/{property_id}/epc")
+def lookup_epc(
+    property_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    Look up EPC certificate and improvement recommendations for a property.
+    Auto-populates the valuation wizard EPC field.
+    """
+    prop = db.query(UserProperty).filter(
+        UserProperty.id == property_id,
+        UserProperty.user_id == user.id,
+    ).first()
+    if not prop:
+        raise HTTPException(status_code=404, detail='Property not found')
+
+    from backend.services.epc_service import lookup_by_address, get_recommendations, is_epc_compliant
+
+    address = ' '.join(filter(None, [prop.address_line1, prop.address_line2]))
+    cert = lookup_by_address(db, prop.postcode, address)
+
+    if not cert:
+        return {'found': False, 'message': 'No EPC certificate found for this address'}
+
+    # Get recommendations if we have the certificate key
+    recs = get_recommendations(db, cert.get('lmk_key'))
+    compliant = is_epc_compliant(cert.get('energy_rating'))
+
+    return {
+        'found': True,
+        'energy_rating': cert.get('energy_rating'),
+        'potential_rating': cert.get('potential_energy_rating'),
+        'floor_area_sqm': cert.get('floor_area_sqm'),
+        'property_type': cert.get('mapped_type'),
+        'inspection_date': str(cert.get('inspection_date')) if cert.get('inspection_date') else None,
+        'is_compliant': compliant,
+        'recommendations': recs.get('items', []),
+        'total_cost_low': recs.get('total_cost_low'),
+        'total_cost_high': recs.get('total_cost_high'),
+        'compliance_cost_low': recs.get('compliance_cost_low'),
+        'compliance_cost_high': recs.get('compliance_cost_high'),
+    }
+
+
+# ============================================================================
 # Valuation endpoints
 # ============================================================================
 

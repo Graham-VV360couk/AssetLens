@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, ArrowRight, AlertTriangle, CheckCircle } from 'lucide-react';
+import { ArrowLeft, ArrowRight, AlertTriangle, CheckCircle, Zap, TrendingUp } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { formatCurrency } from '../../utils/formatters';
 
@@ -136,6 +136,8 @@ export default function ValuationWizard({ property, onClose }) {
   const [step, setStep] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null);
+  const [epcData, setEpcData] = useState(null);
+  const [epcLoading, setEpcLoading] = useState(true);
 
   const [answers, setAnswers] = useState({
     basics: {
@@ -165,6 +167,30 @@ export default function ValuationWizard({ property, onClose }) {
   const set = (section, key, value) => {
     setAnswers(a => ({ ...a, [section]: { ...a[section], [key]: value } }));
   };
+
+  // Auto-lookup EPC on mount
+  useEffect(() => {
+    const token = localStorage.getItem('assetlens_token');
+    if (!token || !property?.id) { setEpcLoading(false); return; }
+    fetch(`/api/valuation/properties/${property.id}/epc`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.found) {
+          setEpcData(data);
+          // Pre-populate the EPC rating in features
+          if (data.energy_rating) {
+            setAnswers(a => ({
+              ...a,
+              features: { ...a.features, epc_rating: data.energy_rating },
+            }));
+          }
+        }
+      })
+      .catch(() => {})
+      .finally(() => setEpcLoading(false));
+  }, [property?.id]);
 
   const setCondition = (attr, value) => {
     setAnswers(a => ({ ...a, condition: { ...a.condition, [attr]: value } }));
@@ -236,6 +262,55 @@ export default function ValuationWizard({ property, onClose }) {
           </div>
         </div>
 
+        {/* EPC Upgrade Opportunity */}
+        {epcData?.energy_rating && epcData?.potential_rating && epcData.energy_rating !== epcData.potential_rating && (
+          <div className="bg-slate-900 border border-blue-500/20 rounded-2xl p-6 space-y-3">
+            <div className="flex items-center gap-2 mb-2">
+              <Zap size={18} className="text-amber-400" />
+              <h3 className="text-white font-semibold">EPC Upgrade Opportunity</h3>
+            </div>
+            <div className="flex items-center gap-4 mb-3">
+              <div className="text-center">
+                <div className="text-xs text-slate-500">Current</div>
+                <div className={`text-3xl font-bold ${
+                  ['A','B','C'].includes(epcData.energy_rating) ? 'text-emerald-400' :
+                  epcData.energy_rating === 'D' ? 'text-amber-400' : 'text-red-400'
+                }`}>{epcData.energy_rating}</div>
+              </div>
+              <ArrowRight size={20} className="text-slate-600" />
+              <div className="text-center">
+                <div className="text-xs text-slate-500">Potential</div>
+                <div className="text-3xl font-bold text-emerald-400">{epcData.potential_rating}</div>
+              </div>
+              {epcData.total_cost_low && (
+                <div className="ml-auto text-right">
+                  <div className="text-xs text-slate-500">Estimated cost</div>
+                  <div className="text-sm font-bold text-white">
+                    {formatCurrency(epcData.total_cost_low)} — {formatCurrency(epcData.total_cost_high)}
+                  </div>
+                </div>
+              )}
+            </div>
+            {epcData.recommendations?.length > 0 && (
+              <div className="space-y-1.5">
+                {epcData.recommendations.slice(0, 5).map((rec, i) => (
+                  <div key={i} className="flex items-center justify-between bg-slate-800/60 rounded px-3 py-1.5">
+                    <span className="text-xs text-slate-300">{rec.improvement_summary_text || rec.improvement_item}</span>
+                    <span className="text-xs text-slate-500 whitespace-nowrap ml-2">
+                      {rec.indicative_cost_raw || ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="text-xs text-slate-500 mt-2">
+              Upgrading from {epcData.energy_rating} to {epcData.potential_rating} could add
+              {' '}{formatCurrency((['A','B'].includes(epcData.potential_rating) ? 10000 : 5000) -
+                (['E','F','G'].includes(epcData.energy_rating) ? -5000 : 0))} to the property value.
+            </p>
+          </div>
+        )}
+
         <p className="text-xs text-slate-600 text-center italic">
           This is an indicative estimate only, not a formal valuation. It is based on comparable sales data
           adjusted for the features and condition information you have provided.
@@ -305,6 +380,83 @@ export default function ValuationWizard({ property, onClose }) {
           {step === 1 && (
             <div className="space-y-4">
               <h2 className="text-lg font-bold text-white">Key Features</h2>
+
+              {/* EPC Auto-lookup panel */}
+              {epcLoading ? (
+                <div className="bg-slate-800/60 rounded-lg p-4 text-sm text-slate-400">Looking up EPC data...</div>
+              ) : epcData ? (
+                <div className="bg-slate-800/60 border border-slate-700/50 rounded-lg p-4 space-y-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Zap size={16} className="text-amber-400" />
+                    <span className="text-sm font-semibold text-white">EPC Certificate Found</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="bg-slate-900/50 rounded-lg p-3 text-center">
+                      <div className="text-xs text-slate-500 mb-1">Current</div>
+                      <div className={`text-2xl font-bold ${
+                        ['A','B','C'].includes(epcData.energy_rating) ? 'text-emerald-400' :
+                        epcData.energy_rating === 'D' ? 'text-amber-400' : 'text-red-400'
+                      }`}>{epcData.energy_rating || '?'}</div>
+                    </div>
+                    <div className="bg-slate-900/50 rounded-lg p-3 text-center">
+                      <div className="text-xs text-slate-500 mb-1">Potential</div>
+                      <div className="text-2xl font-bold text-emerald-400">{epcData.potential_rating || '?'}</div>
+                    </div>
+                    <div className="bg-slate-900/50 rounded-lg p-3 text-center">
+                      <div className="text-xs text-slate-500 mb-1">Floor Area</div>
+                      <div className="text-lg font-bold text-white">{epcData.floor_area_sqm ? `${epcData.floor_area_sqm}m²` : '?'}</div>
+                    </div>
+                  </div>
+
+                  {!epcData.is_compliant && (
+                    <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+                      <AlertTriangle size={14} className="text-red-400 mt-0.5 flex-shrink-0" />
+                      <span className="text-xs text-red-300">
+                        This property is below EPC E — it cannot be legally rented without improvements.
+                        {epcData.compliance_cost_low && (
+                          <> Estimated cost to reach E: {formatCurrency(epcData.compliance_cost_low)} — {formatCurrency(epcData.compliance_cost_high)}</>
+                        )}
+                      </span>
+                    </div>
+                  )}
+
+                  {epcData.recommendations?.length > 0 && (
+                    <div>
+                      <div className="flex items-center gap-1 mb-2">
+                        <TrendingUp size={14} className="text-blue-400" />
+                        <span className="text-xs font-semibold text-slate-300">
+                          Improvements to reach {epcData.potential_rating}
+                        </span>
+                      </div>
+                      <div className="space-y-1.5">
+                        {epcData.recommendations.slice(0, 6).map((rec, i) => (
+                          <div key={i} className="flex items-center justify-between bg-slate-900/50 rounded px-3 py-1.5">
+                            <span className="text-xs text-slate-300">{rec.improvement_summary_text || rec.improvement_item}</span>
+                            <span className="text-xs text-slate-500 whitespace-nowrap ml-2">
+                              {rec.indicative_cost_raw || (rec.indicative_cost_low ? `£${rec.indicative_cost_low}-£${rec.indicative_cost_high}` : '')}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      {epcData.total_cost_low && (
+                        <div className="text-right text-xs text-slate-400 mt-2">
+                          Total: {formatCurrency(epcData.total_cost_low)} — {formatCurrency(epcData.total_cost_high)}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <p className="text-xs text-slate-600">
+                    Inspected: {epcData.inspection_date || 'Unknown'}.
+                    Rating pre-populated below — override if you've had a new assessment.
+                  </p>
+                </div>
+              ) : (
+                <div className="bg-slate-800/60 rounded-lg p-3 text-xs text-slate-500">
+                  No EPC certificate found for this address. Please select your rating below.
+                </div>
+              )}
+
               {[
                 { label: 'Parking', key: 'parking', options: PARKING },
                 { label: 'Garden', key: 'garden', options: GARDEN },
@@ -313,7 +465,12 @@ export default function ValuationWizard({ property, onClose }) {
                 { label: 'Heating', key: 'heating', options: HEATING },
               ].map(({ label, key, options }) => (
                 <div key={key}>
-                  <label className="text-xs text-slate-500 block mb-1">{label}</label>
+                  <label className="text-xs text-slate-500 block mb-1">
+                    {label}
+                    {key === 'epc_rating' && epcData?.energy_rating && (
+                      <span className="text-blue-400 ml-1">(auto-populated from EPC records)</span>
+                    )}
+                  </label>
                   <SelectGrid options={options} value={answers.features[key]} onChange={v => set('features', key, v)} />
                 </div>
               ))}
